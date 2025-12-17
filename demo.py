@@ -41,7 +41,55 @@ def print_output_structure(obj, prefix=""):
 
 
 # ============================================================
-# NEW: Whole-video NPZ (memmap) helpers
+# NEW: choose one person closest to image center
+# ============================================================
+def select_center_person(outputs, img_w: int, img_h: int, enabled: bool):
+    """
+    If enabled and outputs contains multiple people (list of dicts),
+    return a list with exactly one dict: the person whose bbox center is closest
+    to the image center.
+
+    If bbox is missing, fallback to first person.
+    """
+    if not enabled:
+        return outputs
+
+    if not isinstance(outputs, (list, tuple)):
+        return outputs
+
+    if len(outputs) <= 1:
+        return outputs
+
+    cx_img = img_w * 0.5
+    cy_img = img_h * 0.5
+
+    best_i = 0
+    best_d2 = None
+
+    for i, out in enumerate(outputs):
+        if not isinstance(out, dict):
+            continue
+        bbox = out.get("bbox", None)
+        if bbox is None:
+            continue
+        bbox = np.asarray(bbox).reshape(-1)
+        if bbox.size < 4:
+            continue
+
+        x1, y1, x2, y2 = float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])
+        cx = 0.5 * (x1 + x2)
+        cy = 0.5 * (y1 + y2)
+        d2 = (cx - cx_img) ** 2 + (cy - cy_img) ** 2
+
+        if best_d2 is None or d2 < best_d2:
+            best_d2 = d2
+            best_i = i
+
+    return [outputs[best_i]]
+
+
+# ============================================================
+# Whole-video NPZ (memmap) helpers
 # ============================================================
 def init_video_memmaps(out_dir, n_kept_frames, dtype=np.float32):
     """
@@ -176,7 +224,7 @@ def cleanup_video_memmaps(out_dir):
 
 
 # ============================================================
-# NEW: Per-sample NPZ helper (image / timestamp)
+# Per-sample NPZ helper (image / timestamp)
 # ============================================================
 def save_single_npz(npz_path, outputs, meta: dict):
     """
@@ -397,7 +445,13 @@ def run_on_image_folder(args, estimator, output_folder):
             use_mask=args.use_mask,
         )
 
+        # NEW: if multiple persons, keep only center person
         img_bgr = cv2.imread(image_path)
+        if img_bgr is None:
+            raise RuntimeError(f"Could not read image: {image_path}")
+        H, W = img_bgr.shape[0], img_bgr.shape[1]
+        outputs = select_center_person(outputs, img_w=W, img_h=H, enabled=args.center_person_only)
+
         rend = visualize_sample_together(img_bgr, outputs, estimator.faces)
         rend = np.ascontiguousarray(_to_uint8(rend))
 
@@ -409,12 +463,13 @@ def run_on_image_folder(args, estimator, output_folder):
         out_path = os.path.join(output_folder, base + ".jpg")
         cv2.imwrite(out_path, rend)
 
-        # NEW: save npz per image (if requested)
+        # save npz per image (if requested)
         if args.save_npz:
             npz_path = os.path.join(output_folder, base + ".npz")
             meta = {
                 "mode": "image_folder",
                 "image_path": image_path,
+                "center_person_only": bool(args.center_person_only),
             }
             save_single_npz(npz_path, outputs, meta)
 
@@ -476,6 +531,9 @@ def run_on_video(args, estimator, output_folder):
                 tmp_dir=tmp_dir,
                 frame_idx=idx,
             )
+
+            # NEW: if multiple persons, keep only center person
+            outputs = select_center_person(outputs, img_w=w, img_h=h, enabled=args.center_person_only)
 
             # write model outputs into memmaps (one row per kept frame)
             if memmaps is not None:
@@ -582,6 +640,7 @@ def run_on_video(args, estimator, output_folder):
             "stride": int(args.stride),
             "num_frames_total": int(n_frames_seen) if n_frames_seen is not None else -1,
             "num_frames_saved": int(T),
+            "center_person_only": bool(args.center_person_only),
         }
 
         for mm in memmaps.values():
@@ -669,6 +728,10 @@ def run_on_video_timestamps(args, estimator, output_folder):
             frame_idx=frame_idx,
         )
 
+        # NEW: if multiple persons, keep only center person
+        H, W = frame_rgb.shape[0], frame_rgb.shape[1]
+        outputs = select_center_person(outputs, img_w=W, img_h=H, enabled=args.center_person_only)
+
         safe_ts = ts.replace(":", "-")
         base = os.path.join(output_folder, f"ts_{i:04d}_{safe_ts}_f{frame_idx:06d}")
 
@@ -686,7 +749,7 @@ def run_on_video_timestamps(args, estimator, output_folder):
 
         cv2.imwrite(base + "_render.jpg", np.ascontiguousarray(_to_uint8(rend_bgr)))
 
-        # NEW: save npz per timestamp (if requested)
+        # save npz per timestamp (if requested)
         if args.save_npz:
             npz_path = base + "_data.npz"
             meta = {
@@ -695,6 +758,7 @@ def run_on_video_timestamps(args, estimator, output_folder):
                 "timestamp": ts,
                 "frame_idx": int(frame_idx),
                 "fps": float(fps),
+                "center_person_only": bool(args.center_person_only),
             }
             save_single_npz(npz_path, outputs, meta)
 
@@ -743,14 +807,14 @@ if __name__ == "__main__":
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=r"""
 Examples:
-  # folder of images
-  python demo.py --image_folder ./images --checkpoint_path ./checkpoints/model.ckpt --save_npz
+  # folder of images (keep center person only)
+  python demo.py --image_folder ./images --checkpoint_path ./checkpoints/model.ckpt --save_npz --center_person_only
 
-  # video (process all frames) + save ONE NPZ per video
-  python demo.py --video_path ./video.mp4 --checkpoint_path ./checkpoints/model.ckpt --save_npz
+  # video (process all frames) + save ONE NPZ per video (keep center person only)
+  python demo.py --video_path ./video.mp4 --checkpoint_path ./checkpoints/model.ckpt --save_npz --center_person_only
 
-  # video + timestamps (extract specific frames only) + save per-timestamp NPZ
-  python demo.py --video_path ./video.mp4 --video_timestamps --timestamps "01:37.409,01:38.357" --checkpoint_path ./checkpoints/model.ckpt --save_npz
+  # video + timestamps (extract specific frames only) + save per-timestamp NPZ (keep center person only)
+  python demo.py --video_path ./video.mp4 --video_timestamps --timestamps "01:37.409,01:38.357" --checkpoint_path ./checkpoints/model.ckpt --save_npz --center_person_only
         """,
     )
 
@@ -829,6 +893,14 @@ Examples:
     # Timestamp mode options
     parser.add_argument("--timestamps", type=str, default="", help='Comma-separated timestamps e.g. "01:37.409,01:38.357"')
     parser.add_argument("--timestamp_file", type=str, default="", help="Text file with one timestamp per line")
+
+    # NEW: single-person selection option
+    parser.add_argument(
+        "--center_person_only",
+        action="store_true",
+        default=False,
+        help="If multiple people are detected, keep only the person whose bbox center is closest to the image center.",
+    )
 
     # Format handling / debug
     parser.add_argument(
