@@ -28,3 +28,12 @@ python demo.py \
   --mhr_path ./checkpoints/sam-3d-body-dinov3/assets/mhr_model.pt \
   --detector_name sam3 \
   --save_npz
+
+# 4) run on kit
+python demo.py \
+  --video_path /media/haziq/Haziq/mocap/data/kit/train/files_motions_292/videos/cam1/jumping_jack01_final.avi \
+  --output_folder /media/haziq/Haziq/mocap/data/kit/train/files_motions_292/mhr/cam1/jumping_jack01_final \
+  --checkpoint_path ./checkpoints/sam-3d-body-dinov3/model.ckpt \
+  --mhr_path ./checkpoints/sam-3d-body-dinov3/assets/mhr_model.pt \
+  --detector_name sam3 \
+  --save_npz
