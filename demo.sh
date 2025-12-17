@@ -8,7 +8,9 @@ python demo.py \
     --output_folder /home/haziq/sam-3d-body/example_data/results/ \
     --checkpoint_path ./checkpoints/sam-3d-body-dinov3/model.ckpt \
     --mhr_path ./checkpoints/sam-3d-body-dinov3/assets/mhr_model.pt \
-    --detector_name sam3
+    --detector_name sam3 \
+    --save_npz \
+    --center_person_only
 
 # 2) run on a video with timestamps
 python demo.py \
@@ -27,4 +29,5 @@ python demo.py \
   --checkpoint_path ./checkpoints/sam-3d-body-dinov3/model.ckpt \
   --mhr_path ./checkpoints/sam-3d-body-dinov3/assets/mhr_model.pt \
   --detector_name sam3 \
-  --save_npz
+  --save_npz \
+  --center_person_only
