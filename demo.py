@@ -19,6 +19,190 @@ from sam_3d_body import load_sam_3d_body, SAM3DBodyEstimator
 from tools.vis_utils import visualize_sample_together
 from tqdm import tqdm
 
+def print_output_structure(obj, prefix=""):
+    import torch
+    import numpy as np
+
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            print_output_structure(v, prefix + f"{k}.")
+    elif isinstance(obj, (list, tuple)):
+        print(prefix + f"[list len={len(obj)}]")
+        for i, v in enumerate(obj):
+            print_output_structure(v, prefix + f"[{i}].")
+    elif isinstance(obj, torch.Tensor):
+        print(prefix[:-1], "torch.Tensor", tuple(obj.shape), obj.dtype)
+    elif isinstance(obj, np.ndarray):
+        print(prefix[:-1], "np.ndarray", obj.shape, obj.dtype)
+    elif obj is None:
+        print(prefix[:-1], "None")
+    else:
+        print(prefix[:-1], type(obj).__name__, obj)
+
+
+# ============================================================
+# NEW: Whole-video NPZ (memmap) helpers
+# ============================================================
+def init_video_memmaps(out_dir, n_kept_frames, dtype=np.float32):
+    """
+    Disk-backed buffers (memmaps) so we can store the whole video without RAM blow-up.
+    Shapes are based on what you printed from outputs[0].
+    """
+    os.makedirs(out_dir, exist_ok=True)
+    mm = {}
+
+    mm["vertices"] = np.lib.format.open_memmap(
+        os.path.join(out_dir, "vertices.tmp.npy"),
+        mode="w+",
+        dtype=dtype,
+        shape=(n_kept_frames, 18439, 3),
+    )
+    mm["pred_pose_raw"] = np.lib.format.open_memmap(
+        os.path.join(out_dir, "pred_pose_raw.tmp.npy"),
+        mode="w+",
+        dtype=dtype,
+        shape=(n_kept_frames, 266),
+    )
+    mm["pred_cam_t"] = np.lib.format.open_memmap(
+        os.path.join(out_dir, "pred_cam_t.tmp.npy"),
+        mode="w+",
+        dtype=dtype,
+        shape=(n_kept_frames, 3),
+    )
+    mm["pred_joint_coords"] = np.lib.format.open_memmap(
+        os.path.join(out_dir, "pred_joint_coords.tmp.npy"),
+        mode="w+",
+        dtype=dtype,
+        shape=(n_kept_frames, 127, 3),
+    )
+    mm["pred_keypoints_3d"] = np.lib.format.open_memmap(
+        os.path.join(out_dir, "pred_keypoints_3d.tmp.npy"),
+        mode="w+",
+        dtype=dtype,
+        shape=(n_kept_frames, 70, 3),
+    )
+    mm["pred_keypoints_2d"] = np.lib.format.open_memmap(
+        os.path.join(out_dir, "pred_keypoints_2d.tmp.npy"),
+        mode="w+",
+        dtype=dtype,
+        shape=(n_kept_frames, 70, 2),
+    )
+    mm["bbox"] = np.lib.format.open_memmap(
+        os.path.join(out_dir, "bbox.tmp.npy"),
+        mode="w+",
+        dtype=dtype,
+        shape=(n_kept_frames, 4),
+    )
+    mm["focal_length"] = np.lib.format.open_memmap(
+        os.path.join(out_dir, "focal_length.tmp.npy"),
+        mode="w+",
+        dtype=dtype,
+        shape=(n_kept_frames,),
+    )
+    mm["global_rot"] = np.lib.format.open_memmap(
+        os.path.join(out_dir, "global_rot.tmp.npy"),
+        mode="w+",
+        dtype=dtype,
+        shape=(n_kept_frames, 3),
+    )
+    mm["body_pose_params"] = np.lib.format.open_memmap(
+        os.path.join(out_dir, "body_pose_params.tmp.npy"),
+        mode="w+",
+        dtype=dtype,
+        shape=(n_kept_frames, 133),
+    )
+    mm["hand_pose_params"] = np.lib.format.open_memmap(
+        os.path.join(out_dir, "hand_pose_params.tmp.npy"),
+        mode="w+",
+        dtype=dtype,
+        shape=(n_kept_frames, 108),
+    )
+    mm["scale_params"] = np.lib.format.open_memmap(
+        os.path.join(out_dir, "scale_params.tmp.npy"),
+        mode="w+",
+        dtype=dtype,
+        shape=(n_kept_frames, 28),
+    )
+    mm["shape_params"] = np.lib.format.open_memmap(
+        os.path.join(out_dir, "shape_params.tmp.npy"),
+        mode="w+",
+        dtype=dtype,
+        shape=(n_kept_frames, 45),
+    )
+    mm["expr_params"] = np.lib.format.open_memmap(
+        os.path.join(out_dir, "expr_params.tmp.npy"),
+        mode="w+",
+        dtype=dtype,
+        shape=(n_kept_frames, 72),
+    )
+    mm["pred_global_rots"] = np.lib.format.open_memmap(
+        os.path.join(out_dir, "pred_global_rots.tmp.npy"),
+        mode="w+",
+        dtype=dtype,
+        shape=(n_kept_frames, 127, 3, 3),
+    )
+    # hand bboxes are float64 in your print; we store float32 for consistency
+    mm["lhand_bbox"] = np.lib.format.open_memmap(
+        os.path.join(out_dir, "lhand_bbox.tmp.npy"),
+        mode="w+",
+        dtype=dtype,
+        shape=(n_kept_frames, 4),
+    )
+    mm["rhand_bbox"] = np.lib.format.open_memmap(
+        os.path.join(out_dir, "rhand_bbox.tmp.npy"),
+        mode="w+",
+        dtype=dtype,
+        shape=(n_kept_frames, 4),
+    )
+    mm["frame_indices"] = np.lib.format.open_memmap(
+        os.path.join(out_dir, "frame_indices.tmp.npy"),
+        mode="w+",
+        dtype=np.int32,
+        shape=(n_kept_frames,),
+    )
+
+    return mm
+
+
+def cleanup_video_memmaps(out_dir):
+    """
+    Delete temporary .tmp.npy files used for memmaps.
+    """
+    for f in glob(os.path.join(out_dir, "*.tmp.npy")):
+        try:
+            os.remove(f)
+        except OSError:
+            pass
+
+
+# ============================================================
+# NEW: Per-sample NPZ helper (image / timestamp)
+# ============================================================
+def save_single_npz(npz_path, outputs, meta: dict):
+    """
+    Save one inference result (usually outputs is a list len=1 of dicts) into one NPZ.
+    Skips None values.
+    """
+    if isinstance(outputs, (list, tuple)):
+        if len(outputs) == 0:
+            raise RuntimeError("Empty outputs; cannot save NPZ.")
+        out0 = outputs[0]
+    elif isinstance(outputs, dict):
+        out0 = outputs
+    else:
+        raise RuntimeError(f"Unexpected outputs type for NPZ saving: {type(outputs)}")
+
+    pack = {}
+    for k, v in meta.items():
+        pack[f"meta_{k}"] = v
+
+    for k, v in out0.items():
+        if v is None:
+            continue
+        pack[k] = v
+
+    np.savez_compressed(npz_path, **pack)
+
 
 # ----------------------------
 # Video helpers
@@ -144,7 +328,6 @@ def build_estimator(args):
 
     if args.detector_name:
         from tools.build_detector import HumanDetector
-
         human_detector = HumanDetector(name=args.detector_name, device=device, path=detector_path)
 
     # Keep the newer demo.py behavior:
@@ -152,12 +335,10 @@ def build_estimator(args):
     # - if segmentor_name == "sam2": only build if a path is provided
     if (args.segmentor_name == "sam2" and len(segmentor_path)) or args.segmentor_name != "sam2":
         from tools.build_sam import HumanSegmentor
-
         human_segmentor = HumanSegmentor(name=args.segmentor_name, device=device, path=segmentor_path)
 
     if args.fov_name:
         from tools.build_fov_estimator import FOVEstimator
-
         fov_estimator = FOVEstimator(name=args.fov_name, device=device, path=fov_path)
 
     estimator = SAM3DBodyEstimator(
@@ -224,9 +405,18 @@ def run_on_image_folder(args, estimator, output_folder):
         if not args.vis_returns_bgr:
             rend = cv2.cvtColor(rend, cv2.COLOR_RGB2BGR)
 
-        out_name = os.path.splitext(os.path.basename(image_path))[0] + ".jpg"
-        out_path = os.path.join(output_folder, out_name)
+        base = os.path.splitext(os.path.basename(image_path))[0]
+        out_path = os.path.join(output_folder, base + ".jpg")
         cv2.imwrite(out_path, rend)
+
+        # NEW: save npz per image (if requested)
+        if args.save_npz:
+            npz_path = os.path.join(output_folder, base + ".npz")
+            meta = {
+                "mode": "image_folder",
+                "image_path": image_path,
+            }
+            save_single_npz(npz_path, outputs, meta)
 
 
 def run_on_video(args, estimator, output_folder):
@@ -248,11 +438,29 @@ def run_on_video(args, estimator, output_folder):
     out_size = None  # (out_w, out_h)
     out_fps = None
 
+    # Whole-video npz saving (memmap-backed)
+    memmaps = None
+    memmaps_dir = os.path.join(output_folder, "video_npz_tmp")
+    kept_t = 0
+    n_kept_frames = None
+    n_frames_seen = None
+
+    # allow old flag name as alias (if you used it before)
+    save_video_npz = bool(args.save_npz or args.save_video_npz)
+
     try:
         for idx, frame_bgr, fps, (w, h), n_frames in iter_video_frames_bgr(args.video_path):
             if pbar is None:
                 total = n_frames if n_frames and n_frames > 0 else None
                 pbar = tqdm(total=total, desc="Processing video frames")
+                n_frames_seen = n_frames
+
+                # allocate memmaps once we know frame count
+                if save_video_npz:
+                    if n_frames is None or n_frames <= 0:
+                        raise RuntimeError("Video frame count unknown; cannot allocate whole-video NPZ buffers.")
+                    n_kept_frames = (n_frames + args.stride - 1) // args.stride
+                    memmaps = init_video_memmaps(memmaps_dir, n_kept_frames)
 
             if idx % args.stride != 0:
                 pbar.update(1)
@@ -268,6 +476,35 @@ def run_on_video(args, estimator, output_folder):
                 tmp_dir=tmp_dir,
                 frame_idx=idx,
             )
+
+            # write model outputs into memmaps (one row per kept frame)
+            if memmaps is not None:
+                if not isinstance(outputs, (list, tuple)) or len(outputs) == 0:
+                    raise RuntimeError(f"Unexpected outputs type/empty at frame {idx}: {type(outputs)}")
+                person0 = outputs[0]
+
+                memmaps["vertices"][kept_t] = person0["pred_vertices"].astype(np.float32, copy=False)
+                memmaps["pred_pose_raw"][kept_t] = person0["pred_pose_raw"].astype(np.float32, copy=False)
+                memmaps["pred_cam_t"][kept_t] = person0["pred_cam_t"].astype(np.float32, copy=False)
+                memmaps["pred_joint_coords"][kept_t] = person0["pred_joint_coords"].astype(np.float32, copy=False)
+                memmaps["pred_keypoints_3d"][kept_t] = person0["pred_keypoints_3d"].astype(np.float32, copy=False)
+                memmaps["pred_keypoints_2d"][kept_t] = person0["pred_keypoints_2d"].astype(np.float32, copy=False)
+                memmaps["bbox"][kept_t] = person0["bbox"].astype(np.float32, copy=False)
+                memmaps["focal_length"][kept_t] = np.float32(person0["focal_length"])
+
+                memmaps["global_rot"][kept_t] = person0["global_rot"].astype(np.float32, copy=False)
+                memmaps["body_pose_params"][kept_t] = person0["body_pose_params"].astype(np.float32, copy=False)
+                memmaps["hand_pose_params"][kept_t] = person0["hand_pose_params"].astype(np.float32, copy=False)
+                memmaps["scale_params"][kept_t] = person0["scale_params"].astype(np.float32, copy=False)
+                memmaps["shape_params"][kept_t] = person0["shape_params"].astype(np.float32, copy=False)
+                memmaps["expr_params"][kept_t] = person0["expr_params"].astype(np.float32, copy=False)
+                memmaps["pred_global_rots"][kept_t] = person0["pred_global_rots"].astype(np.float32, copy=False)
+
+                memmaps["lhand_bbox"][kept_t] = np.asarray(person0["lhand_bbox"], dtype=np.float32)
+                memmaps["rhand_bbox"][kept_t] = np.asarray(person0["rhand_bbox"], dtype=np.float32)
+
+                memmaps["frame_indices"][kept_t] = np.int32(idx)
+                kept_t += 1
 
             # visualize on RGB frame
             rend = visualize_sample_together(frame_rgb, outputs, estimator.faces)
@@ -303,7 +540,6 @@ def run_on_video(args, estimator, output_folder):
                     print("FPS:", out_fps, "Codec:", args.video_codec)
                     print("First rendered frame:", rend_bgr.shape, rend_bgr.dtype)
 
-            # Enforce constant output size for the entire video (VideoWriter requirement)
             if out_size != (out_w, out_h):
                 raise RuntimeError(
                     f"Rendered frame size changed from initial {out_size} to {(out_w, out_h)} at frame {idx}. "
@@ -324,6 +560,63 @@ def run_on_video(args, estimator, output_folder):
         if writer is not None:
             writer.release()
 
+    # finalize one single NPZ per video
+    if memmaps is not None:
+        T = kept_t
+
+        # name
+        video_npz_name = args.video_npz_name.strip() if args.video_npz_name else ""
+        if video_npz_name == "":
+            video_npz_name = f"{video_base}_mhr_outputs.npz"
+        if not video_npz_name.endswith(".npz"):
+            video_npz_name += ".npz"
+
+        out_npz_path = os.path.join(output_folder, video_npz_name)
+
+        meta = {
+            "mode": "video_full",
+            "video_path": args.video_path,
+            "fps": float(out_fps if out_fps is not None else 0.0),
+            "input_w": int(w),
+            "input_h": int(h),
+            "stride": int(args.stride),
+            "num_frames_total": int(n_frames_seen) if n_frames_seen is not None else -1,
+            "num_frames_saved": int(T),
+        }
+
+        for mm in memmaps.values():
+            mm.flush()
+
+        np.savez_compressed(
+            out_npz_path,
+            vertices=memmaps["vertices"][:T],
+            pred_pose_raw=memmaps["pred_pose_raw"][:T],
+            pred_cam_t=memmaps["pred_cam_t"][:T],
+            pred_joint_coords=memmaps["pred_joint_coords"][:T],
+            pred_keypoints_3d=memmaps["pred_keypoints_3d"][:T],
+            pred_keypoints_2d=memmaps["pred_keypoints_2d"][:T],
+            bbox=memmaps["bbox"][:T],
+            focal_length=memmaps["focal_length"][:T],
+            global_rot=memmaps["global_rot"][:T],
+            body_pose_params=memmaps["body_pose_params"][:T],
+            hand_pose_params=memmaps["hand_pose_params"][:T],
+            scale_params=memmaps["scale_params"][:T],
+            shape_params=memmaps["shape_params"][:T],
+            expr_params=memmaps["expr_params"][:T],
+            pred_global_rots=memmaps["pred_global_rots"][:T],
+            lhand_bbox=memmaps["lhand_bbox"][:T],
+            rhand_bbox=memmaps["rhand_bbox"][:T],
+            frame_indices=memmaps["frame_indices"][:T],
+            meta=np.array([meta], dtype=object),
+        )
+
+        if not args.keep_video_npz_tmp:
+            cleanup_video_memmaps(memmaps_dir)
+            try:
+                os.rmdir(memmaps_dir)
+            except OSError:
+                pass
+
     if args.cleanup_tmp and os.path.isdir(tmp_dir):
         for f in glob(os.path.join(tmp_dir, "*.jpg")):
             try:
@@ -338,7 +631,7 @@ def run_on_video(args, estimator, output_folder):
 
 def run_on_video_timestamps(args, estimator, output_folder):
     """
-    Timestamp mode: extract specific frames only and save per-timestamp renders + inputs.
+    Timestamp mode: extract specific frames only and save per-timestamp renders + inputs (+ optional npz).
     """
     os.makedirs(output_folder, exist_ok=True)
 
@@ -393,6 +686,18 @@ def run_on_video_timestamps(args, estimator, output_folder):
 
         cv2.imwrite(base + "_render.jpg", np.ascontiguousarray(_to_uint8(rend_bgr)))
 
+        # NEW: save npz per timestamp (if requested)
+        if args.save_npz:
+            npz_path = base + "_data.npz"
+            meta = {
+                "mode": "video_timestamps",
+                "video_path": args.video_path,
+                "timestamp": ts,
+                "frame_idx": int(frame_idx),
+                "fps": float(fps),
+            }
+            save_single_npz(npz_path, outputs, meta)
+
     if args.cleanup_tmp and os.path.isdir(tmp_dir):
         for f in glob(os.path.join(tmp_dir, "*.jpg")):
             try:
@@ -439,13 +744,13 @@ if __name__ == "__main__":
         epilog=r"""
 Examples:
   # folder of images
-  python demo.py --image_folder ./images --checkpoint_path ./checkpoints/model.ckpt
+  python demo.py --image_folder ./images --checkpoint_path ./checkpoints/model.ckpt --save_npz
 
-  # video (process all frames)
-  python demo.py --video_path ./video.mp4 --checkpoint_path ./checkpoints/model.ckpt
+  # video (process all frames) + save ONE NPZ per video
+  python demo.py --video_path ./video.mp4 --checkpoint_path ./checkpoints/model.ckpt --save_npz
 
-  # video + timestamps (extract specific frames only)
-  python demo.py --video_path ./video.mp4 --video_timestamps --timestamps "01:37.409,01:38.357" --checkpoint_path ./checkpoints/model.ckpt
+  # video + timestamps (extract specific frames only) + save per-timestamp NPZ
+  python demo.py --video_path ./video.mp4 --video_timestamps --timestamps "01:37.409,01:38.357" --checkpoint_path ./checkpoints/model.ckpt --save_npz
         """,
     )
 
@@ -491,6 +796,35 @@ Examples:
     parser.add_argument("--video_codec", type=str, default="mp4v", help="FourCC codec (common: mp4v, avc1, MJPG)")
     parser.add_argument("--save_frames", action="store_true", default=False, help="Also save rendered frames as JPGs (full-video mode)")
     parser.add_argument("--cleanup_tmp", action="store_true", default=False, help="Delete temporary inference frames")
+
+    # NPZ saving (unified flag)
+    parser.add_argument(
+        "--save_npz",
+        action="store_true",
+        default=False,
+        help="Save NPZ outputs. Image mode: one NPZ per image. Timestamp mode: one NPZ per timestamp. Full video: ONE NPZ per video (stacked).",
+    )
+
+    # Backward-compatible alias (optional): if present, behaves like --save_npz for full video
+    parser.add_argument(
+        "--save_video_npz",
+        action="store_true",
+        default=False,
+        help="(Alias) Save ONE NPZ per video in full-video mode (stacked arrays). Prefer --save_npz.",
+    )
+
+    parser.add_argument(
+        "--video_npz_name",
+        type=str,
+        default="",
+        help="Filename for the full-video NPZ (default: <video_basename>_mhr_outputs.npz).",
+    )
+    parser.add_argument(
+        "--keep_video_npz_tmp",
+        action="store_true",
+        default=False,
+        help="Keep temporary memmap .tmp.npy files (debug). By default they are deleted after NPZ is written.",
+    )
 
     # Timestamp mode options
     parser.add_argument("--timestamps", type=str, default="", help='Comma-separated timestamps e.g. "01:37.409,01:38.357"')
