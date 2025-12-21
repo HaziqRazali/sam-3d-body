@@ -12,13 +12,21 @@ class Dinov3Backbone(nn.Module):
         self.name = name
         self.cfg = cfg
 
+        # self.encoder = torch.hub.load(
+        #     "facebookresearch/dinov3",
+        #     self.name,
+        #     source="github",
+        #     pretrained=False,
+        #     drop_path=self.cfg.MODEL.BACKBONE.DROP_PATH_RATE,
+        # )
         self.encoder = torch.hub.load(
-            "facebookresearch/dinov3",
-            self.name,
-            source="github",
+            repo_or_dir="/home/haziq/sam-3d-body/models/dinov3",
+            model=self.name,
+            source="local",
             pretrained=False,
             drop_path=self.cfg.MODEL.BACKBONE.DROP_PATH_RATE,
         )
+
         self.patch_size = self.encoder.patch_size
         self.embed_dim = self.embed_dims = self.encoder.embed_dim
 
