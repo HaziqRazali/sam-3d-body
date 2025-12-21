@@ -1,0 +1,452 @@
+#!/usr/bin/env python3
+"""
+main.py
+
+Entry point for ROM visualization.
+Faithful refactor of the original rom.py with:
+- restored defaults
+- no non-existent smplx helpers
+- clean separation into utils_* modules
+"""
+
+import os
+import json
+import argparse
+import numpy as np
+import torch
+import smplx
+import open3d as o3d
+
+from utils_math import (
+    normalize,
+    project_point_to_plane,
+    project_vec_to_plane,
+    signed_angle_in_plane,
+    build_plane_basis_from_up_and_right,
+)
+
+from utils_vis import (
+    make_plane_patch,
+    make_arrow_from_to,
+    make_body_material,
+    make_joint_material,
+    make_plane_material,
+    make_arrow_material,
+    create_visualizer,
+    add_joint_spheres,
+    run_visualizer,
+)
+
+from utils_rom_config import ROM_TASKS, JOINT_NAMES
+
+
+# =============================
+# JSON + SMPL-X helpers
+# =============================
+
+def to_torch(x, device, dtype=torch.float32):
+    x = np.asarray(x)
+    return torch.from_numpy(x).to(device=device, dtype=dtype)
+
+
+def load_json_rotmats(path, device):
+    d = json.load(open(path, "r"))
+    params = {k: to_torch(d[k], device) for k in d.keys()}
+
+    if params["transl"].ndim == 1:
+        params["transl"] = params["transl"].unsqueeze(0)
+    if params["betas"].ndim == 1:
+        params["betas"] = params["betas"].unsqueeze(0)
+    if params["expression"].ndim == 1:
+        params["expression"] = params["expression"].unsqueeze(0)
+
+    return params
+
+
+def rotmat_to_axis_angle(R):
+    R = R.to(dtype=torch.float32)
+
+    tr = R[..., 0, 0] + R[..., 1, 1] + R[..., 2, 2]
+    cos_theta = torch.clamp((tr - 1.0) * 0.5, -1.0, 1.0)
+    theta = torch.acos(cos_theta)
+
+    rx = R[..., 2, 1] - R[..., 1, 2]
+    ry = R[..., 0, 2] - R[..., 2, 0]
+    rz = R[..., 1, 0] - R[..., 0, 1]
+    r = torch.stack([rx, ry, rz], dim=-1)
+
+    sin_theta = torch.sin(theta)
+    denom = 2.0 * torch.clamp(sin_theta, min=1e-8)[..., None]
+    axis = r / denom
+
+    small = theta < 1e-6
+    axis = torch.where(small[..., None], torch.zeros_like(axis), axis)
+
+    return axis * theta[..., None]
+
+
+def convert_rotmats_to_axis_angle_params(rot_params):
+    B = rot_params["betas"].shape[0]
+
+    def aa_single(name):
+        R = rot_params[name]
+        if R.ndim == 4:
+            R = R[:, 0]
+        return rotmat_to_axis_angle(R)
+
+    def aa_multi(name, J):
+        R = rot_params[name]
+        aa = rotmat_to_axis_angle(R.reshape(-1, 3, 3)).reshape(B, J, 3)
+        return aa.reshape(B, J * 3)
+
+    return {
+        "transl": rot_params["transl"],
+        "betas": rot_params["betas"],
+        "expression": rot_params["expression"],
+        "global_orient": aa_single("global_orient"),
+        "body_pose": aa_multi("body_pose", 21),
+        "left_hand_pose": aa_multi("left_hand_pose", 15),
+        "right_hand_pose": aa_multi("right_hand_pose", 15),
+        "jaw_pose": aa_single("jaw_pose"),
+        "leye_pose": aa_single("leye_pose"),
+        "reye_pose": aa_single("reye_pose"),
+    }
+
+
+# =============================
+# ROM computation (current task)
+# =============================
+
+def compute_task(task_name, joints, body_scale, plane_scale):
+    """
+    Compute ROM angle + debug geometry for a given task_name.
+    """
+
+    if task_name == "left_forearm_yaw_transverse":
+        # ===== YOUR EXISTING CODE (unchanged) =====
+        p_pelvis = joints[JOINT_NAMES.index("pelvis")]
+        p_spine2 = joints[JOINT_NAMES.index("spine2")]
+        p_lsho = joints[JOINT_NAMES.index("left_shoulder")]
+        p_rsho = joints[JOINT_NAMES.index("right_shoulder")]
+
+        p0 = 0.5 * (p_pelvis + p_spine2)
+        up = normalize(p_spine2 - p_pelvis)
+        right_guess = normalize(p_rsho - p_lsho)
+
+        right, forward, up = build_plane_basis_from_up_and_right(up, right_guess)
+
+        p_el = joints[JOINT_NAMES.index("left_elbow")]
+        p_wr = joints[JOINT_NAMES.index("left_wrist")]
+
+        v = p_wr - p_el
+
+        p_el_proj = project_point_to_plane(p_el, p0, up)
+        v_proj = project_vec_to_plane(v, up)
+        p_wr_proj = p_el_proj + v_proj
+
+        ref_len = np.linalg.norm(v_proj)
+        f_plane = normalize(project_vec_to_plane(forward, up))
+        v_ref = f_plane * ref_len
+        p_ref_end = p_el_proj + v_ref
+
+        ang_rad = signed_angle_in_plane(v_proj, v_ref, up)
+        ang_deg = float(np.degrees(ang_rad)) if np.isfinite(ang_rad) else np.nan
+
+        geom = {
+            "plane": {"origin": p0, "right": right, "forward": forward, "half": plane_scale * body_scale},
+            "vectors": {"raw": (p_el, p_wr), "projected": (p_el_proj, p_wr_proj), "reference": (p_el_proj, p_ref_end)},
+            "angle_pos": p_el_proj + 0.02 * body_scale * right,
+        }
+        return ang_deg, geom
+
+    elif task_name == "left_hip_internal_rotation":
+        # ===== NEW HIP TASK =====
+        # Plane axes (body-parallel)
+        p_spine1 = joints[JOINT_NAMES.index("spine1")]
+        p_spine2 = joints[JOINT_NAMES.index("spine2")]
+        p_lhip = joints[JOINT_NAMES.index("left_hip")]
+        p_rhip = joints[JOINT_NAMES.index("right_hip")]
+
+        # Anchor everything at knee (as you requested)
+        p_knee = joints[JOINT_NAMES.index("left_knee")]
+        p_ankle = joints[JOINT_NAMES.index("left_ankle")]
+
+        # In-plane axis 1: body vertical
+        up_axis = normalize(p_spine2 - p_spine1)
+
+        # In-plane axis 2: body left->right
+        right_guess = normalize(p_rhip - p_lhip)
+
+        # Build an orthonormal body frame
+        right, forward, up_axis = build_plane_basis_from_up_and_right(up_axis, right_guess)
+
+        # Define the plane using its normal.
+        # Since 'up_axis' and 'right' are in-plane axes, the normal is +/- forward.
+        plane_normal = forward
+
+        # Main vector: knee -> ankle, projected to plane
+        v_main = (p_ankle - p_knee)
+        v_main_proj = project_vec_to_plane(v_main, plane_normal)
+
+        # Reference vector direction: spine1 -> spine2, anchored at knee
+        cfg = ROM_TASKS[task_name]
+        ref = cfg["reference_vector"]
+        p_from = joints[JOINT_NAMES.index(ref["from"])]
+        p_to   = joints[JOINT_NAMES.index(ref["to"])]
+        v_ref  = p_to - p_from
+        v_ref_proj = project_vec_to_plane(v_ref, plane_normal)
+
+        # Match lengths for nicer drawing
+        main_len = np.linalg.norm(v_main_proj)
+        if main_len < 1e-8:
+            ang_deg = np.nan
+            geom = {
+                "plane": {"origin": p_knee, "right": right, "forward": up_axis, "half": plane_scale * body_scale},
+                "vectors": {"raw": (p_knee, p_ankle)},
+                "angle_pos": p_knee,
+            }
+            return ang_deg, geom
+
+        v_ref_proj = normalize(v_ref_proj) * main_len
+
+        # Endpoints for drawing (both start at knee)
+        p_main_end = p_knee + v_main_proj
+        p_ref_end = p_knee + v_ref_proj
+
+        # Signed angle in plane around plane_normal
+        ang_rad = signed_angle_in_plane(v_main_proj, v_ref_proj, plane_normal)
+        ang_deg = float(np.degrees(ang_rad)) if np.isfinite(ang_rad) else np.nan
+
+        geom = {
+            "plane": {
+                "origin": p_knee,
+                # For the plane patch we need two in-plane directions:
+                # use 'right' and 'up_axis' as the patch axes (both lie in the plane)
+                "right": right,
+                "forward": up_axis,
+                "half": plane_scale * body_scale,
+            },
+            "vectors": {
+                "raw": (p_knee, p_ankle),                  # original main (for optional draw)
+                "projected": (p_knee, p_main_end),         # projected main
+                "reference": (p_knee, p_ref_end),          # projected reference
+            },
+            "angle_pos": p_knee + 0.02 * body_scale * right,
+        }
+        return ang_deg, geom
+
+    elif task_name == "left_knee_flexion":
+        # ===== LEFT KNEE FLEXION =====
+
+        # --- joints ---
+        p_knee  = joints[JOINT_NAMES.index("left_knee")]
+        p_hip   = joints[JOINT_NAMES.index("left_hip")]
+        p_ankle = joints[JOINT_NAMES.index("left_ankle")]
+
+        # --- vectors (both anchored at knee) ---
+        # Thigh direction
+        v_ref = p_hip - p_knee
+
+        # Shank direction
+        v_main = p_ankle - p_knee
+
+        # --- normalize ---
+        n_ref = np.linalg.norm(v_ref)
+        n_main = np.linalg.norm(v_main)
+
+        if n_ref < 1e-8 or n_main < 1e-8:
+            return np.nan, {
+                "vectors": {
+                    "raw": (p_knee, p_ankle),
+                    "reference": (p_knee, p_hip),
+                },
+                "angle_pos": p_knee,
+            }
+
+        u = v_ref / n_ref
+        v = v_main / n_main
+
+        # --- unsigned angle between vectors ---
+        cosang = np.clip(np.dot(u, v), -1.0, 1.0)
+        ang_rad = np.arccos(cosang)
+        ang_deg_raw = np.degrees(ang_rad)
+
+        # --- flexion convention: 0° = straight ---
+        # straight leg → vectors opposite → ~180°
+        flexion_deg = ang_deg_raw
+
+        # --- geometry for visualization ---
+        # match lengths for nicer arrows
+        ref_len = n_main
+        v_ref_draw = u * ref_len
+        v_main_draw = v_main
+
+        geom = {
+            "plane": None,
+            "vectors": {
+                "raw": (p_knee, p_ankle),
+                "reference": (p_knee, p_knee + v_ref_draw),
+                "projected": (p_knee, p_knee + v_main_draw),
+            },
+            "angle_pos": p_knee + 0.02 * body_scale * normalize(v_main),
+        }
+
+        return flexion_deg, geom
+
+    else:
+        raise ValueError(f"Unknown task: {task_name}")
+
+# =============================
+# Main
+# =============================
+
+# python main.py --filename "/home/haziq/datasets/telept/data/ipad/rgb_1764569430654/timestamps/ts_0001_01-38.357_f001913_data.json"
+# python main.py --filename "/home/haziq/datasets/telept/data/ipad/rgb_1764569971278/timestamps/ts_0000_00-20.347_f000399_data.json" --task "left_hip_internal_rotation"
+# python main.py --filename "/home/haziq/datasets/telept/data/ipad/rgb_1764569695903/timestamps/ts_0001_00-31.270_f000622_data.json" --task "left_knee_flexion"
+
+def main():
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument(
+        "--filename",
+        type=str,
+        default="/home/haziq/datasets/telept/data/ipad/rgb_1764569430654/timestamps/ts_0001_01-38.357_f001913_data.json",
+    )
+    parser.add_argument(
+        "--smplx_models_path",
+        type=str,
+        default=os.path.expanduser(
+            "~/datasets/mocap/data/models_smplx_v1_1/models/"
+        ),
+    )
+    parser.add_argument("--gender", type=str, default="neutral")
+    parser.add_argument("--device", type=str, default="cuda")
+    parser.add_argument(
+        "--task",
+        type=str,
+        default="left_forearm_yaw_transverse",
+    )
+    parser.add_argument(
+        "--plane_scale",
+        type=float,
+        default=0.30,
+    )
+    parser.add_argument(
+        "--plane_alpha",
+        type=float,
+        default=0.7,
+    )
+
+    args = parser.parse_args()
+
+    device = torch.device(args.device if torch.cuda.is_available() else "cpu")
+
+    # ---- load SMPL-X ----
+    rot_params = load_json_rotmats(args.filename, device)
+    Rz180 = torch.tensor(
+        [[-1.0,  0.0,  0.0],
+        [ 0.0, -1.0,  0.0],
+        [ 0.0,  0.0,  1.0]],
+        device=device,
+        dtype=rot_params["global_orient"].dtype,
+    )
+    Ry180 = torch.tensor(
+        [[-1.0,  0.0,  0.0],
+        [ 0.0,  1.0,  0.0],
+        [ 0.0,  0.0, -1.0]],
+        device=device,
+        dtype=rot_params["global_orient"].dtype,
+    )
+    G = rot_params["global_orient"]
+    if G.ndim == 4:      # (B, 1, 3, 3)
+        G = G[:, 0]
+        G = Ry180 @ (Rz180 @ G)
+        rot_params["global_orient"] = G[:, None]
+    elif G.ndim == 3:    # (B, 3, 3)
+        rot_params["global_orient"] = Ry180 @ (Rz180 @ G)
+    else:
+        raise ValueError(f"Unexpected global_orient shape: {G.shape}")
+
+    aa_params = convert_rotmats_to_axis_angle_params(rot_params)
+
+    model = smplx.create(
+        model_path=args.smplx_models_path,
+        model_type="smplx",
+        gender=args.gender,
+        num_betas=aa_params["betas"].shape[-1],
+        num_expression_coeffs=aa_params["expression"].shape[-1],
+        use_pca=False,
+        batch_size=1,
+    ).to(device)
+
+    with torch.no_grad():
+        out = model(**aa_params)
+
+    verts = out.vertices[0].cpu().numpy().astype(np.float64)
+    faces = np.asarray(model.faces, dtype=np.int32)
+    joints = out.joints[0].cpu().numpy()[: len(JOINT_NAMES)]
+
+    body_scale = float(np.linalg.norm(np.ptp(verts, axis=0)))
+
+    # ---- compute ROM ----
+    angle_deg, geom = compute_task(args.task, joints, body_scale, args.plane_scale)
+    print(f"[ANGLE] {args.task}: {angle_deg:.2f} deg")
+
+    # ---- visualization ----
+    app, w = create_visualizer("ROM Visualizer")
+
+    mesh = o3d.geometry.TriangleMesh(
+        o3d.utility.Vector3dVector(verts),
+        o3d.utility.Vector3iVector(faces),
+    )
+    mesh.compute_vertex_normals()
+    mesh.compute_triangle_normals()
+
+    w.add_geometry("body", mesh, make_body_material(alpha=args.plane_alpha))
+
+    add_joint_spheres(
+        w,
+        joints,
+        body_scale,
+        make_joint_material(),
+        JOINT_NAMES,
+    )
+
+    # ---- plane (optional) ----
+    if geom.get("plane") is not None:
+        plane = make_plane_patch(
+            geom["plane"]["origin"],
+            geom["plane"]["right"],
+            geom["plane"]["forward"],
+            geom["plane"]["half"],
+            geom["plane"]["half"],
+        )
+        w.add_geometry("plane", plane, make_plane_material(alpha=args.plane_alpha))
+
+    arrow_mats = {
+        "raw": make_arrow_material((0.0, 0.0, 0.0)),
+        "projected": make_arrow_material((1.0, 0.5, 0.0)),
+        "reference": make_arrow_material((0.0, 0.7, 0.0)),
+    }
+
+    for name, (p0, p1) in geom["vectors"].items():
+        arrow = make_arrow_from_to(p0, p1, body_scale)
+        if arrow is not None:
+            w.add_geometry(f"vec_{name}", arrow, arrow_mats[name])
+
+    w.add_3d_label(geom["angle_pos"], f"theta = {angle_deg:.1f}°")
+
+    # ---- camera setup (force upright + facing you) ----
+    # bbox = mesh.get_axis_aligned_bounding_box()
+    # center = bbox.get_center()
+
+    # eye = center + np.array([0.0, -0.4, -0.7]) * body_scale  # in front
+    # up  = np.array([0.0, -1.0, 0.0])                        # Y-up (try)
+
+    # w.scene.camera.look_at(center, eye, up)
+
+    run_visualizer(app, w, True)
+
+
+if __name__ == "__main__":
+    main()

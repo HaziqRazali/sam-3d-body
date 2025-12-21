@@ -19,6 +19,7 @@ from sam_3d_body import load_sam_3d_body, SAM3DBodyEstimator
 from tools.vis_utils import visualize_sample_together
 from tqdm import tqdm
 
+
 def print_output_structure(obj, prefix=""):
     import torch
     import numpy as np
@@ -86,6 +87,31 @@ def select_center_person(outputs, img_w: int, img_h: int, enabled: bool):
             best_i = i
 
     return [outputs[best_i]]
+
+
+# ============================================================
+# NEW: pred_vertices -> vertices aliasing (for all modes)
+# ============================================================
+def add_vertices_alias(outputs):
+    """
+    Ensure each person dict has a 'vertices' key aliasing 'pred_vertices'.
+    This is a rename/alias convenience: no data copy.
+    - If outputs is dict: operate on it.
+    - If outputs is list/tuple of dicts: operate per element.
+    """
+    if isinstance(outputs, dict):
+        if ("pred_vertices" in outputs) and ("vertices" not in outputs):
+            outputs["vertices"] = outputs["pred_vertices"]
+        return outputs
+
+    if isinstance(outputs, (list, tuple)):
+        out_list = list(outputs)  # in case it's a tuple
+        for o in out_list:
+            if isinstance(o, dict) and ("pred_vertices" in o) and ("vertices" not in o):
+                o["vertices"] = o["pred_vertices"]
+        return out_list
+
+    return outputs
 
 
 # ============================================================
@@ -405,15 +431,19 @@ def process_one_input(estimator, image_or_path, bbox_thr, use_mask, tmp_dir=None
       - a string path (original behavior)
       - a numpy RGB frame (video frame)
     If estimator only supports paths, fall back to writing a temp jpg (BGR).
+
+    NEW: adds vertices alias (pred_vertices -> vertices) to outputs for consistency.
     """
     # Case 1: original API (path)
     if isinstance(image_or_path, str):
-        return estimator.process_one_image(image_or_path, bbox_thr=bbox_thr, use_mask=use_mask)
+        outputs = estimator.process_one_image(image_or_path, bbox_thr=bbox_thr, use_mask=use_mask)
+        return add_vertices_alias(outputs)
 
     # Case 2: numpy frame (assumed RGB)
     frame_rgb = image_or_path
     try:
-        return estimator.process_one_image(frame_rgb, bbox_thr=bbox_thr, use_mask=use_mask)
+        outputs = estimator.process_one_image(frame_rgb, bbox_thr=bbox_thr, use_mask=use_mask)
+        return add_vertices_alias(outputs)
     except Exception:
         if tmp_dir is None or frame_idx is None:
             raise
@@ -425,7 +455,8 @@ def process_one_input(estimator, image_or_path, bbox_thr, use_mask, tmp_dir=None
         tmp_path = os.path.join(tmp_dir, f"frame_{frame_idx:06d}.jpg")
         cv2.imwrite(tmp_path, frame_bgr)
 
-        return estimator.process_one_image(tmp_path, bbox_thr=bbox_thr, use_mask=use_mask)
+        outputs = estimator.process_one_image(tmp_path, bbox_thr=bbox_thr, use_mask=use_mask)
+        return add_vertices_alias(outputs)
 
 
 # ----------------------------
@@ -541,6 +572,9 @@ def run_on_video(args, estimator, output_folder):
                     raise RuntimeError(f"Unexpected outputs type/empty at frame {idx}: {type(outputs)}")
                 person0 = outputs[0]
 
+                # NOTE: pred_vertices -> vertices mapping:
+                # - process_one_input now ensures person0 has "vertices" aliasing "pred_vertices"
+                # - we still write from pred_vertices to stay consistent with your original logic
                 memmaps["vertices"][kept_t] = person0["pred_vertices"].astype(np.float32, copy=False)
                 memmaps["pred_pose_raw"][kept_t] = person0["pred_pose_raw"].astype(np.float32, copy=False)
                 memmaps["pred_cam_t"][kept_t] = person0["pred_cam_t"].astype(np.float32, copy=False)
