@@ -301,9 +301,9 @@ def compute_task(task_name, joints, body_scale, plane_scale):
 # Main
 # =============================
 
-# python main.py --filename "/home/haziq/datasets/telept/data/ipad/rgb_1764569430654/timestamps/ts_0001_01-38.357_f001913"
-# python main.py --filename "/home/haziq/datasets/telept/data/ipad/rgb_1764569971278/timestamps/ts_0000_00-20.347_f000399" --task "left_hip_internal_rotation"
-# python main.py --filename "/home/haziq/datasets/telept/data/ipad/rgb_1764569695903/timestamps/ts_0001_00-31.270_f000622" --task "left_knee_flexion"
+# python main.py --filename "~/datasets/telept/data/ipad/rgb_1764569430654/timestamps/ts_0001_01-38.357_f001913"
+# python main.py --filename "~/datasets/telept/data/ipad/rgb_1764569971278/timestamps/ts_0000_00-20.347_f000399" --task "left_hip_internal_rotation"
+# python main.py --filename "~/datasets/telept/data/ipad/rgb_1764569695903/timestamps/ts_0001_00-31.270_f000622" --task "left_knee_flexion"
 
 def main():
     parser = argparse.ArgumentParser()
@@ -311,7 +311,7 @@ def main():
     parser.add_argument(
         "--filename",
         type=str,
-        default="/home/haziq/datasets/telept/data/ipad/rgb_1764569430654/timestamps/ts_0001_01-38.357_f001913",
+        default=os.path.expanduser("~/datasets/telept/data/ipad/rgb_1764569430654/timestamps/ts_0001_01-38.357_f001913"),
     )
     parser.add_argument(
         "--smplx_models_path",
@@ -339,6 +339,7 @@ def main():
     )
 
     args = parser.parse_args()
+    args.filename = os.path.expanduser(args.filename)
 
     device = torch.device(args.device if torch.cuda.is_available() else "cpu")
 
