@@ -1,0 +1,14 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../MHR"
+		},
+		{
+			"path": "../datasets/mocap"
+		}
+	],
+	"settings": {}
+}

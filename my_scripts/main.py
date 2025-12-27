@@ -10,6 +10,7 @@ Faithful refactor of the original rom.py with:
 """
 
 import os
+import cv2, threading, time
 import json
 import argparse
 import numpy as np
@@ -300,9 +301,9 @@ def compute_task(task_name, joints, body_scale, plane_scale):
 # Main
 # =============================
 
-# python main.py --filename "/home/haziq/datasets/telept/data/ipad/rgb_1764569430654/timestamps/ts_0001_01-38.357_f001913_data.json"
-# python main.py --filename "/home/haziq/datasets/telept/data/ipad/rgb_1764569971278/timestamps/ts_0000_00-20.347_f000399_data.json" --task "left_hip_internal_rotation"
-# python main.py --filename "/home/haziq/datasets/telept/data/ipad/rgb_1764569695903/timestamps/ts_0001_00-31.270_f000622_data.json" --task "left_knee_flexion"
+# python main.py --filename "/home/haziq/datasets/telept/data/ipad/rgb_1764569430654/timestamps/ts_0001_01-38.357_f001913"
+# python main.py --filename "/home/haziq/datasets/telept/data/ipad/rgb_1764569971278/timestamps/ts_0000_00-20.347_f000399" --task "left_hip_internal_rotation"
+# python main.py --filename "/home/haziq/datasets/telept/data/ipad/rgb_1764569695903/timestamps/ts_0001_00-31.270_f000622" --task "left_knee_flexion"
 
 def main():
     parser = argparse.ArgumentParser()
@@ -310,7 +311,7 @@ def main():
     parser.add_argument(
         "--filename",
         type=str,
-        default="/home/haziq/datasets/telept/data/ipad/rgb_1764569430654/timestamps/ts_0001_01-38.357_f001913_data.json",
+        default="/home/haziq/datasets/telept/data/ipad/rgb_1764569430654/timestamps/ts_0001_01-38.357_f001913",
     )
     parser.add_argument(
         "--smplx_models_path",
@@ -342,7 +343,7 @@ def main():
     device = torch.device(args.device if torch.cuda.is_available() else "cpu")
 
     # ---- load SMPL-X ----
-    rot_params = load_json_rotmats(args.filename, device)
+    rot_params = load_json_rotmats(args.filename+"_data.json", device)
     Rz180 = torch.tensor(
         [[-1.0,  0.0,  0.0],
         [ 0.0, -1.0,  0.0],
@@ -444,6 +445,28 @@ def main():
     # up  = np.array([0.0, -1.0, 0.0])                        # Y-up (try)
 
     # w.scene.camera.look_at(center, eye, up)
+
+    def show_img_loop(path):
+        img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
+        if img is None:
+            print("[WARN] Could not read:", path)
+            return
+
+        # If RGBA, drop alpha for display
+        if img.ndim == 3 and img.shape[2] == 4:
+            img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+
+        cv2.namedWindow("RGB Frame", cv2.WINDOW_NORMAL)
+        cv2.imshow("RGB Frame", img)
+
+        # Keep pumping events until window closed
+        while cv2.getWindowProperty("RGB Frame", cv2.WND_PROP_VISIBLE) >= 1:
+            cv2.waitKey(16)
+            time.sleep(0.01)
+
+    img_path = args.filename + "_render.jpg"
+    if os.path.exists(img_path):
+        threading.Thread(target=show_img_loop, args=(img_path,), daemon=True).start()
 
     run_visualizer(app, w, True)
 
