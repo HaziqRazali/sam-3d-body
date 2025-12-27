@@ -1,5 +1,6 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 
+import os
 import torch
 from torch import nn
 
@@ -20,7 +21,7 @@ class Dinov3Backbone(nn.Module):
         #     drop_path=self.cfg.MODEL.BACKBONE.DROP_PATH_RATE,
         # )
         self.encoder = torch.hub.load(
-            repo_or_dir="/home/haziq/sam-3d-body/models/dinov3",
+            repo_or_dir=os.path.join(os.path.expanduser("~"),"sam-3d-body/models/dinov3"),
             model=self.name,
             source="local",
             pretrained=False,
