@@ -567,7 +567,7 @@ def main():
     parser.add_argument(
         "--filename",
         type=str,
-        default="/home/haziq/datasets/telept/data/ipad/rgb_1764569430654/timestamps/ts_0001_01-38.357_f001913",
+        default=os.path.expanduser("~/datasets/telept/data/ipad/rgb_1764569430654/timestamps/ts_0001_01-38.357_f001913"),
     )
     parser.add_argument(
         "--smplx_models_path",
@@ -595,6 +595,7 @@ def main():
     )
 
     args = parser.parse_args()
+    args.filename = os.path.expanduser(args.filename)
 
     device = torch.device(args.device if torch.cuda.is_available() else "cpu")
 
