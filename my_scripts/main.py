@@ -118,12 +118,129 @@ def convert_rotmats_to_axis_angle_params(rot_params):
 # ROM computation (current task)
 # =============================
 
+def compute_hinge_flexion(
+    joints,
+    joint_name,
+    proximal_name,
+    distal_name,
+    body_scale,
+    zero_when_straight=True,
+):
+    p_joint = joints[JOINT_NAMES.index(joint_name)]
+    p_prox  = joints[JOINT_NAMES.index(proximal_name)]
+    p_dist  = joints[JOINT_NAMES.index(distal_name)]
+
+    v_ref  = p_prox - p_joint
+    v_main = p_dist - p_joint
+
+    n_ref = np.linalg.norm(v_ref)
+    n_main = np.linalg.norm(v_main)
+    if n_ref < 1e-8 or n_main < 1e-8:
+        return np.nan, {
+            "plane": None,
+            "vectors": {
+                "raw": (p_joint, p_dist),
+                "reference": (p_joint, p_prox),
+            },
+            "angle_pos": p_joint,
+        }
+
+    u = v_ref / n_ref
+    v = v_main / n_main
+
+    cosang = np.clip(np.dot(u, v), -1.0, 1.0)
+    ang_rad = np.arccos(cosang)
+    ang_deg = float(np.degrees(ang_rad))
+
+    if zero_when_straight:
+        ang_deg = 180.0 - ang_deg
+
+    # Visualization
+    v_ref_draw = u * n_main
+
+    geom = {
+        "plane": None,
+        "vectors": {
+            "raw": (p_joint, p_dist),
+            "reference": (p_joint, p_joint + v_ref_draw),
+            "projected": (p_joint, p_joint + v_main),
+        },
+        "angle_pos": p_joint + 0.02 * body_scale * normalize(v_main),
+    }
+
+    return ang_deg, geom
+
+def compute_shoulder_sagittal_angle(joints, body_scale, plane_scale):
+    # torso frame joints
+    p_pelvis = joints[JOINT_NAMES.index("pelvis")]
+    p_spine3 = joints[JOINT_NAMES.index("spine3")]
+    p_lsho   = joints[JOINT_NAMES.index("left_shoulder")]
+    p_rsho   = joints[JOINT_NAMES.index("right_shoulder")]
+    p_wr     = joints[JOINT_NAMES.index("left_wrist")]
+
+    # basis
+    up_axis = normalize(p_spine3 - p_pelvis)
+    right_guess = normalize(p_rsho - p_lsho)
+    right_axis, forward, up_axis = build_plane_basis_from_up_and_right(up_axis, right_guess)
+
+    # choose sign so flexion (forward) is positive
+    plane_normal = -right_axis  # sagittal plane normal
+
+    # vectors projected into sagittal plane
+    v_main = p_wr - p_lsho
+    v_main_proj = project_vec_to_plane(v_main, plane_normal)
+
+    v_ref = p_pelvis - p_spine3  # DOWN reference (0° when arm down)
+    v_ref_proj = project_vec_to_plane(v_ref, plane_normal)
+
+    n_main = np.linalg.norm(v_main_proj)
+    n_ref  = np.linalg.norm(v_ref_proj)
+    if n_main < 1e-8 or n_ref < 1e-8:
+        return np.nan, {
+            "plane": {
+                "origin": p_lsho,
+                "right": forward,
+                "forward": up_axis,
+                "half": plane_scale * body_scale,
+            },
+            "vectors": {"raw": (p_lsho, p_wr)},
+            "angle_pos": p_lsho,
+        }
+
+    # match ref length for drawing
+    v_ref_proj = normalize(v_ref_proj) * n_main
+
+    # signed angle: from ref -> main around plane_normal
+    ang_rad = signed_angle_in_plane(v_main_proj, v_ref_proj, plane_normal)
+    ang_deg = float(np.degrees(ang_rad)) if np.isfinite(ang_rad) else np.nan
+
+    # draw endpoints
+    p_main_end = p_lsho + v_main_proj
+    p_ref_end  = p_lsho + v_ref_proj
+
+    geom = {
+        "plane": {
+            "origin": p_lsho,
+            "right": forward,
+            "forward": up_axis,
+            "half": plane_scale * body_scale,
+        },
+        "vectors": {
+            "raw": (p_lsho, p_wr),
+            "projected": (p_lsho, p_main_end),
+            "reference": (p_lsho, p_ref_end),
+        },
+        "angle_pos": p_lsho + 0.02 * body_scale * forward,
+    }
+
+    return ang_deg, geom
+
 def compute_task(task_name, joints, body_scale, plane_scale):
     """
     Compute ROM angle + debug geometry for a given task_name.
     """
 
-    if task_name == "left_forearm_yaw_transverse":
+    if task_name == "left_shoulder_internal_rotation":
         # ===== YOUR EXISTING CODE (unchanged) =====
         p_pelvis = joints[JOINT_NAMES.index("pelvis")]
         p_spine2 = joints[JOINT_NAMES.index("spine2")]
@@ -237,62 +354,197 @@ def compute_task(task_name, joints, body_scale, plane_scale):
         return ang_deg, geom
 
     elif task_name == "left_knee_flexion":
-        # ===== LEFT KNEE FLEXION =====
+        return compute_hinge_flexion(
+            joints,
+            joint_name="left_knee",
+            proximal_name="left_hip",
+            distal_name="left_ankle",
+            body_scale=body_scale,
+            zero_when_straight=True,
+        )
 
-        # --- joints ---
-        p_knee  = joints[JOINT_NAMES.index("left_knee")]
-        p_hip   = joints[JOINT_NAMES.index("left_hip")]
-        p_ankle = joints[JOINT_NAMES.index("left_ankle")]
+    elif task_name == "left_elbow_flexion":
+        return compute_hinge_flexion(
+            joints,
+            joint_name="left_elbow",
+            proximal_name="left_shoulder",
+            distal_name="left_wrist",
+            body_scale=body_scale,
+            zero_when_straight=False,
+        )
 
-        # --- vectors (both anchored at knee) ---
-        # Thigh direction
-        v_ref = p_hip - p_knee
+    elif task_name == "left_shoulder_abduction":
 
-        # Shank direction
-        v_main = p_ankle - p_knee
+        # ===== LEFT SHOULDER ABDUCTION (frontal plane) =====
+        # Plane axes:
+        #   up_axis    = pelvis -> spine3   (used to form plane)
+        #   right_axis = left_shoulder -> right_shoulder
+        # Frontal plane is spanned by (up_axis, right_axis)
+        # Plane normal is forward = cross(up_axis, right_axis)
+        #
+        # Angle convention here:
+        #   reference points DOWN (spine3 -> pelvis),
+        #   so arm-down ≈ 0°, arm-horizontal ≈ 90°, arm-up ≈ 180°.
 
-        # --- normalize ---
-        n_ref = np.linalg.norm(v_ref)
-        n_main = np.linalg.norm(v_main)
+        # --- joints for torso frame ---
+        p_pelvis = joints[JOINT_NAMES.index("pelvis")]
+        p_spine3 = joints[JOINT_NAMES.index("spine3")]
+        p_lsho   = joints[JOINT_NAMES.index("left_shoulder")]
+        p_rsho   = joints[JOINT_NAMES.index("right_shoulder")]
 
-        if n_ref < 1e-8 or n_main < 1e-8:
+        # --- plane basis ---
+        up_axis = normalize(p_spine3 - p_pelvis)
+        right_guess = normalize(p_rsho - p_lsho)
+        right, forward, up_axis = build_plane_basis_from_up_and_right(up_axis, right_guess)
+
+        # Frontal plane normal (front/back axis)
+        plane_normal = forward
+
+        # --- main vector: shoulder -> wrist, projected into frontal plane ---
+        p_wr = joints[JOINT_NAMES.index("left_wrist")]
+        v_main = p_wr - p_lsho
+        v_main_proj = project_vec_to_plane(v_main, plane_normal)
+
+        # --- reference vector: DOWN torso direction, projected into frontal plane ---
+        # DOWN = spine3 -> pelvis  (this makes 0° correspond to arm-down)
+        v_ref = p_pelvis - p_spine3
+        v_ref_proj = project_vec_to_plane(v_ref, plane_normal)
+
+        n_main = np.linalg.norm(v_main_proj)
+        n_ref  = np.linalg.norm(v_ref_proj)
+        if n_main < 1e-8 or n_ref < 1e-8:
             return np.nan, {
-                "vectors": {
-                    "raw": (p_knee, p_ankle),
-                    "reference": (p_knee, p_hip),
+                "plane": {
+                    "origin": p_lsho,
+                    "right": right,
+                    "forward": up_axis,  # in-plane axis for patch
+                    "half": plane_scale * body_scale,
                 },
-                "angle_pos": p_knee,
+                "vectors": {"raw": (p_lsho, p_wr)},
+                "angle_pos": p_lsho,
             }
 
-        u = v_ref / n_ref
-        v = v_main / n_main
+        # --- match ref length to main for visualization ---
+        v_ref_proj = normalize(v_ref_proj) * n_main
 
-        # --- unsigned angle between vectors ---
+        # --- unsigned angle between projected vectors ---
+        u = v_ref_proj / np.linalg.norm(v_ref_proj)
+        v = v_main_proj / np.linalg.norm(v_main_proj)
         cosang = np.clip(np.dot(u, v), -1.0, 1.0)
         ang_rad = np.arccos(cosang)
-        ang_deg_raw = np.degrees(ang_rad)
+        ang_deg = float(np.degrees(ang_rad)) if np.isfinite(ang_rad) else np.nan
 
-        # --- flexion convention: 0° = straight ---
-        # straight leg → vectors opposite → ~180°
-        flexion_deg = ang_deg_raw
-
-        # --- geometry for visualization ---
-        # match lengths for nicer arrows
-        ref_len = n_main
-        v_ref_draw = u * ref_len
-        v_main_draw = v_main
+        # --- endpoints for drawing (both start at left shoulder) ---
+        p_main_end = p_lsho + v_main_proj
+        p_ref_end  = p_lsho + v_ref_proj
 
         geom = {
-            "plane": None,
-            "vectors": {
-                "raw": (p_knee, p_ankle),
-                "reference": (p_knee, p_knee + v_ref_draw),
-                "projected": (p_knee, p_knee + v_main_draw),
+            "plane": {
+                "origin": p_lsho,
+                "right": right,
+                "forward": up_axis,
+                "half": plane_scale * body_scale,
             },
-            "angle_pos": p_knee + 0.02 * body_scale * normalize(v_main),
+            "vectors": {
+                "raw": (p_lsho, p_wr),
+                "projected": (p_lsho, p_main_end),
+                "reference": (p_lsho, p_ref_end),
+            },
+            "angle_pos": p_lsho + 0.02 * body_scale * right,
         }
 
-        return flexion_deg, geom
+        return ang_deg, geom
+    
+    elif task_name == "left_shoulder_flexion_extension":
+        # ===== LEFT SHOULDER FLEXION / EXTENSION (sagittal plane) =====
+        # Convention:
+        #   0° at arm-down,
+        #   + = flexion (arm forward),
+        #   - = extension (arm backward).
+        #
+        # Torso frame:
+        #   up_axis    = pelvis -> spine3
+        #   right_axis = left_shoulder -> right_shoulder
+        #   forward    = cross(up_axis, right_axis)
+        #
+        # Sagittal plane is spanned by (up_axis, forward)
+        # Plane normal is +/- right_axis.
+        # We use plane_normal = -right_axis so that flexion becomes positive.
+
+        # --- joints ---
+        p_pelvis = joints[JOINT_NAMES.index("pelvis")]
+        p_spine3 = joints[JOINT_NAMES.index("spine3")]
+        p_lsho   = joints[JOINT_NAMES.index("left_shoulder")]
+        p_rsho   = joints[JOINT_NAMES.index("right_shoulder")]
+        p_wr     = joints[JOINT_NAMES.index("left_wrist")]
+
+        # --- plane basis (torso) ---
+        up_axis = normalize(p_spine3 - p_pelvis)
+        right_guess = normalize(p_rsho - p_lsho)
+        right_axis, forward, up_axis = build_plane_basis_from_up_and_right(up_axis, right_guess)
+
+        # Sagittal plane normal (choose sign so flexion is +)
+        plane_normal = -right_axis
+
+        # --- main vector: shoulder -> wrist (project into sagittal plane) ---
+        v_main = p_wr - p_lsho
+        v_main_proj = project_vec_to_plane(v_main, plane_normal)
+
+        # --- reference vector: DOWN torso direction (spine3 -> pelvis), drawn from shoulder ---
+        v_ref = p_pelvis - p_spine3  # DOWN
+        v_ref_proj = project_vec_to_plane(v_ref, plane_normal)
+
+        n_main = np.linalg.norm(v_main_proj)
+        n_ref  = np.linalg.norm(v_ref_proj)
+        if n_main < 1e-8 or n_ref < 1e-8:
+            return np.nan, {
+                "plane": {
+                    "origin": p_lsho,
+                    # sagittal plane patch axes are forward + up_axis
+                    "right": forward,
+                    "forward": up_axis,
+                    "half": plane_scale * body_scale,
+                },
+                "vectors": {"raw": (p_lsho, p_wr)},
+                "angle_pos": p_lsho,
+            }
+
+        # --- match ref length to main for visualization ---
+        v_ref_proj = normalize(v_ref_proj) * n_main
+
+        # --- signed angle in sagittal plane ---
+        # signed_angle_in_plane(a, b, n): angle from b -> a around n
+        ang_rad = signed_angle_in_plane(v_main_proj, v_ref_proj, plane_normal)
+        ang_deg = float(np.degrees(ang_rad)) if np.isfinite(ang_rad) else np.nan
+
+        # --- endpoints for drawing (both start at left shoulder) ---
+        p_main_end = p_lsho + v_main_proj
+        p_ref_end  = p_lsho + v_ref_proj
+
+        geom = {
+            "plane": {
+                "origin": p_lsho,
+                "right": forward,    # in-plane axis 1
+                "forward": up_axis,  # in-plane axis 2
+                "half": plane_scale * body_scale,
+            },
+            "vectors": {
+                "raw": (p_lsho, p_wr),
+                "projected": (p_lsho, p_main_end),
+                "reference": (p_lsho, p_ref_end),
+            },
+            "angle_pos": p_lsho + 0.02 * body_scale * forward,
+        }
+
+        return ang_deg, geom
+
+    elif task_name == "left_shoulder_flexion":
+        ang, geom = compute_shoulder_sagittal_angle(joints, body_scale, plane_scale)
+        return max(0.0, ang), geom
+
+    elif task_name == "left_shoulder_extension":
+        ang, geom = compute_shoulder_sagittal_angle(joints, body_scale, plane_scale)
+        return max(0.0, -ang), geom
 
     else:
         raise ValueError(f"Unknown task: {task_name}")
@@ -301,7 +553,11 @@ def compute_task(task_name, joints, body_scale, plane_scale):
 # Main
 # =============================
 
-# python main.py --filename "/home/haziq/datasets/telept/data/ipad/rgb_1764569430654/timestamps/ts_0001_01-38.357_f001913"
+# python main.py --filename "/home/haziq/datasets/telept/data/ipad/rgb_1764569430654/timestamps/ts_0000_00-21.744_f000423" --task "left_shoulder_flexion"
+# python main.py --filename "/home/haziq/datasets/telept/data/ipad/rgb_1764569430654/timestamps/ts_0001_00-17.978_f000350" --task "left_shoulder_extension"
+# python main.py --filename "/home/haziq/datasets/telept/data/ipad/rgb_1764569430654/timestamps/ts_0002_00-31.970_f000622" --task "left_elbow_flexion"
+# python main.py --filename "/home/haziq/datasets/telept/data/ipad/rgb_1764569430654/timestamps/ts_0004_01-28.586_f001723" --task "left_shoulder_abduction"
+# python main.py --filename "/home/haziq/datasets/telept/data/ipad/rgb_1764569430654/timestamps/ts_0003_01-38.357_f001913" --task "left_shoulder_internal_rotation"
 # python main.py --filename "/home/haziq/datasets/telept/data/ipad/rgb_1764569971278/timestamps/ts_0000_00-20.347_f000399" --task "left_hip_internal_rotation"
 # python main.py --filename "/home/haziq/datasets/telept/data/ipad/rgb_1764569695903/timestamps/ts_0001_00-31.270_f000622" --task "left_knee_flexion"
 
@@ -325,7 +581,7 @@ def main():
     parser.add_argument(
         "--task",
         type=str,
-        default="left_forearm_yaw_transverse",
+        default="left_shoulder_internal_rotation",
     )
     parser.add_argument(
         "--plane_scale",
