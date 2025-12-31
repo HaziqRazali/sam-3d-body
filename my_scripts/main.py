@@ -692,7 +692,7 @@ def main():
         if arrow is not None:
             w.add_geometry(f"vec_{name}", arrow, arrow_mats[name])
 
-    w.add_3d_label(geom["angle_pos"], f"theta = {angle_deg:.1f}°")
+    #w.add_3d_label(geom["angle_pos"], f"theta = {angle_deg:.1f}°")
 
     # ---- camera setup (force upright + facing you) ----
     # bbox = mesh.get_axis_aligned_bounding_box()
