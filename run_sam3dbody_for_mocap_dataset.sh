@@ -2,11 +2,20 @@
 set -euo pipefail
 shopt -s nullglob
 
-KIT_ROOT="/media/haziq/Haziq/mocap/data/kit"
+# TEST_MODE=0 ./run_sam3dbody_for_mocap_dataset.sh --DATA_ROOT /home/haziqmr/datasets/mocap/data/self --shard 0 --num_shards 1
+
+# Default (can be overridden via --DATA_ROOT or env var DATA_ROOT)
+DATA_ROOT="${DATA_ROOT:-/media/haziq/Haziq/mocap/data/kit}"
 CHECKPOINT="./checkpoints/sam-3d-body-dinov3/model.ckpt"
 MHR="./checkpoints/sam-3d-body-dinov3/assets/mhr_model.pt"
 
 TEST_MODE="${TEST_MODE:-1}"
+
+# Optional: --DATA_ROOT /path/to/kit
+if [[ "${1:-}" == "--DATA_ROOT" ]]; then
+  DATA_ROOT="$2"
+  shift 2
+fi
 
 # Args: --shard K --num_shards N
 SHARD=0
@@ -16,20 +25,23 @@ if [[ "${1:-}" == "--shard" && "${3:-}" == "--num_shards" ]]; then
   NUM_SHARDS="$4"
 fi
 
-echo "[START] $(date) GPU=${CUDA_VISIBLE_DEVICES:-unset} TEST_MODE=$TEST_MODE SHARD=$SHARD/$NUM_SHARDS"
+echo "[START] $(date) GPU=${CUDA_VISIBLE_DEVICES:-unset} TEST_MODE=$TEST_MODE DATA_ROOT=$DATA_ROOT SHARD=$SHARD/$NUM_SHARDS"
 
 # Build ONE deterministic, sorted list of videos across train+val and mp4+avi
+# Expected layout example:
+#   $DATA_ROOT/train/<seq>/videos/<cam_name>/<video>.{mp4,avi}
+#   $DATA_ROOT/val/<seq>/videos/<cam_name>/<video>.{mp4,avi}
 mapfile -t VIDS < <(
-  find "$KIT_ROOT" -type f \( \
-      -path "*/train/*/videos/cam1/*.mp4" -o -path "*/train/*/videos/cam1/*.avi" -o \
-      -path "*/val/*/videos/cam1/*.mp4"  -o -path "*/val/*/videos/cam1/*.avi"  \
+  find "$DATA_ROOT" -type f \( \
+      -path "*/train/*/videos/*/*.mp4" -o -path "*/train/*/videos/*/*.avi" -o \
+      -path "*/val/*/videos/*/*.mp4"  -o -path "*/val/*/videos/*/*.avi"  \
     \) | sort
 )
 
 echo "[INFO] Total videos found: ${#VIDS[@]}"
 
 if (( ${#VIDS[@]} == 0 )); then
-  echo "[WARN] No videos matched. Check paths under $KIT_ROOT/*/(train|val)/*/videos/cam1/*.(mp4|avi)"
+  echo "[WARN] No videos matched. Check paths under $DATA_ROOT/(train|val)/*/videos/*/*.(mp4|avi)"
   exit 0
 fi
 
@@ -41,14 +53,16 @@ for idx in "${!VIDS[@]}"; do
     continue
   fi
 
-  # split + sequence
-  split="$(basename "$(dirname "$(dirname "$(dirname "$(dirname "$vid")")")")")"   # train|val
-  seq="$(basename "$(dirname "$(dirname "$(dirname "$vid")")")")"                  # files_motions_xxxx
+  # split + sequence + camera
+  # For: .../$split/$seq/videos/$cam/$video
+  split="$(basename "$(dirname "$(dirname "$(dirname "$(dirname "$vid")")")")")"  # train|val
+  seq="$(basename "$(dirname "$(dirname "$(dirname "$vid")")")")"                 # e.g., haziq
+  cam="$(basename "$(dirname "$vid")")"                                          # e.g., laptop_webcam
 
   base="$(basename "$vid")"
   base="${base%.*}"  # strip extension
 
-  out_dir="$KIT_ROOT/$split/$seq/mhr/cam1"
+  out_dir="$DATA_ROOT/$split/$seq/mhr/$cam"
   out_npz="$out_dir/${base}_mhr_outputs.npz"
 
   echo "================================================"
@@ -56,6 +70,7 @@ for idx in "${!VIDS[@]}"; do
   echo "GPU   : ${CUDA_VISIBLE_DEVICES:-unset}"
   echo "SPLIT : $split"
   echo "SEQ   : $seq"
+  echo "CAM   : $cam"
   echo "VIDEO : $vid"
   echo "OUTPUT: $out_dir"
   echo "NPZ   : $out_npz"
