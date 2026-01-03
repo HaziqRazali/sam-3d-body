@@ -1,11 +1,16 @@
 
 
 
-# run on a video with timestamps
+# 00:21.744 left shoulder flexion
+# 00:17.978 left shoulder extension
+# 00:31.970 left elbow flexion
+# 01:28.586 left shoulder abduction
+# 01:38.357 left shoulder internal rotation
+# 01:41.239 left shoulder external rotation
 python demo.py \
   --video_path $HOME/datasets/telept/data/ipad/rgb_1764569430654.mp4 \
   --video_timestamps \
-  --timestamps "01:38.357,00:59.825" \
+  --timestamps "00:21.744,00:17.978,00:31.970,01:38.357,01:28.586,01:38.357,01:41.239" \
   --output_folder $HOME/datasets/telept/data/ipad/rgb_1764569430654 \
   --checkpoint_path ./checkpoints/sam-3d-body-dinov3/model.ckpt \
   --mhr_path ./checkpoints/sam-3d-body-dinov3/assets/mhr_model.pt \

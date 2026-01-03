@@ -58,7 +58,7 @@ ROM_TASKS = {
     # Left forearm yaw in torso transverse plane
     # (your current implementation)
     # -------------------------------------------------
-    "left_forearm_yaw_transverse": {
+    "left_internal_shoulder_rotation": {
 
         # -------- Plane definition --------
         "plane": {
@@ -195,6 +195,146 @@ ROM_TASKS = {
             "draw_plane": False,
             "draw_raw_vector": True,
             "draw_projected_vector": False,
+            "draw_reference_vector": True,
+            "label_angle": True,
+        },
+    },
+
+    "left_shoulder_abduction": {
+        "plane": {
+            "type": "torso_frontal",
+            "origin": {"type": "joint", "name": "left_shoulder"},
+            "up": {"type": "vector", "from": "spine3", "to": "pelvis"},
+            "right": {"type": "vector", "from": "left_shoulder", "to": "right_shoulder"},
+            # Interpretation: plane is spanned by (up, right); normal is forward = cross(up, right)
+        },
+
+        "main_vector": {
+            "from": "left_shoulder",
+            "to": "left_wrist",
+            "project_direction_to_plane": True,
+        },
+
+        "reference_vector": {
+            "type": "vector",
+            "from": "pelvis",
+            "to": "spine3",            # torso up
+            "origin": "left_shoulder",
+            "project_direction_to_plane": True,
+            "match_length_to": "main",
+        },
+
+        "angle": {
+            "type": "unsigned_between_vectors",
+            "unit": "degrees",
+        },
+
+        "viz": {
+            "draw_plane": True,
+            "draw_raw_vector": True,
+            "draw_projected_vector": True,
+            "draw_reference_vector": True,
+            "label_angle": True,
+        },
+    },
+
+    "left_elbow_flexion": {
+        "plane": None,
+
+        "reference_vector": {
+            "type": "vector",
+            "from": "left_elbow",
+            "to": "left_shoulder",   # upper arm direction
+            "origin": "left_elbow",
+            "match_length_to": "main",
+        },
+
+        "main_vector": {
+            "from": "left_elbow",
+            "to": "left_wrist",      # forearm direction
+            "project_direction_to_plane": False,
+        },
+
+        "angle": {
+            "type": "unsigned_between_vectors",
+            "unit": "degrees",
+            "postprocess": {
+                "type": "one_eighty_minus",  # 0° straight, 150° bent etc.
+            },
+        },
+
+        "viz": {
+            "draw_plane": False,
+            "draw_raw_vector": True,
+            "draw_projected_vector": False,
+            "draw_reference_vector": True,
+            "label_angle": True,
+        },
+    },
+
+    "left_shoulder_flexion": {
+        "plane": {
+            "type": "torso_sagittal",
+            "origin": {"type": "joint", "name": "left_shoulder"},
+            "up":    {"type": "vector", "from": "pelvis", "to": "spine3"},
+            "right": {"type": "vector", "from": "left_shoulder", "to": "right_shoulder"},
+        },
+        "main_vector": {
+            "from": "left_shoulder",
+            "to": "left_wrist",
+            "project_direction_to_plane": True,
+        },
+        "reference_vector": {
+            "type": "vector",
+            "from": "spine3",
+            "to": "pelvis",  # DOWN
+            "origin": "left_shoulder",
+            "project_direction_to_plane": True,
+            "match_length_to": "main",
+        },
+        "angle": {
+            "type": "signed_in_plane",
+            "unit": "degrees",
+            "postprocess": {"type": "keep_positive_only"},  # flexion only
+        },
+        "viz": {
+            "draw_plane": True,
+            "draw_raw_vector": True,
+            "draw_projected_vector": True,
+            "draw_reference_vector": True,
+            "label_angle": True,
+        },
+    },
+
+    "left_shoulder_extension": {
+        "plane": {
+            "type": "torso_sagittal",
+            "origin": {"type": "joint", "name": "left_shoulder"},
+            "up":    {"type": "vector", "from": "pelvis", "to": "spine3"},
+            "right": {"type": "vector", "from": "left_shoulder", "to": "right_shoulder"},
+        },
+        "main_vector": {
+            "from": "left_shoulder",
+            "to": "left_wrist",
+            "project_direction_to_plane": True,
+        },
+        "reference_vector": {
+            "type": "vector",
+            "from": "spine3",
+            "to": "pelvis",  # DOWN
+            "origin": "left_shoulder",
+            "project_direction_to_plane": True,
+            "match_length_to": "main",
+        },
+        "angle": {
+            "type": "signed_in_plane",
+            "unit": "degrees",
+            "postprocess": {"type": "keep_negative_as_positive_only"},  # extension only
+        },
+        "viz": {
+            "draw_plane": True,
+            "draw_raw_vector": True,
+            "draw_projected_vector": True,
             "draw_reference_vector": True,
             "label_angle": True,
         },
