@@ -504,6 +504,23 @@ def run_on_image_folder(args, estimator, output_folder):
             }
             save_single_npz(npz_path, outputs, meta)
 
+def fill_row_with_nan(memmaps, t, idx):
+    # float arrays
+    for k in [
+        "vertices", "pred_pose_raw", "pred_cam_t", "pred_joint_coords",
+        "pred_keypoints_3d", "pred_keypoints_2d", "bbox",
+        "global_rot", "body_pose_params", "hand_pose_params",
+        "scale_params", "shape_params", "expr_params", "pred_global_rots",
+        "lhand_bbox", "rhand_bbox",
+    ]:
+        memmaps[k][t][...] = np.nan
+
+    # scalar float
+    memmaps["focal_length"][t] = np.float32(np.nan)
+
+    # int
+    memmaps["frame_indices"][t] = np.int32(idx)
+
 
 def run_on_video(args, estimator, output_folder):
     """
@@ -568,13 +585,17 @@ def run_on_video(args, estimator, output_folder):
 
             # write model outputs into memmaps (one row per kept frame)
             if memmaps is not None:
-                if not isinstance(outputs, (list, tuple)) or len(outputs) == 0:
-                    raise RuntimeError(f"Unexpected outputs type/empty at frame {idx}: {type(outputs)}")
+                # If no detection / no person -> fill NaNs and move on
+                if (not isinstance(outputs, (list, tuple))) or (len(outputs) == 0) or (not isinstance(outputs[0], dict)):
+                    print(f"Frame {kept_t} has NaNs")
+                    fill_row_with_nan(memmaps, kept_t, idx)
+                    kept_t += 1
+                    # optionally log once in awhile
+                    # print(f"[WARN] No person at frame {idx}, wrote NaNs")
+                    continue
+
                 person0 = outputs[0]
 
-                # NOTE: pred_vertices -> vertices mapping:
-                # - process_one_input now ensures person0 has "vertices" aliasing "pred_vertices"
-                # - we still write from pred_vertices to stay consistent with your original logic
                 memmaps["vertices"][kept_t] = person0["pred_vertices"].astype(np.float32, copy=False)
                 memmaps["pred_pose_raw"][kept_t] = person0["pred_pose_raw"].astype(np.float32, copy=False)
                 memmaps["pred_cam_t"][kept_t] = person0["pred_cam_t"].astype(np.float32, copy=False)
@@ -592,8 +613,9 @@ def run_on_video(args, estimator, output_folder):
                 memmaps["expr_params"][kept_t] = person0["expr_params"].astype(np.float32, copy=False)
                 memmaps["pred_global_rots"][kept_t] = person0["pred_global_rots"].astype(np.float32, copy=False)
 
-                memmaps["lhand_bbox"][kept_t] = np.asarray(person0["lhand_bbox"], dtype=np.float32)
-                memmaps["rhand_bbox"][kept_t] = np.asarray(person0["rhand_bbox"], dtype=np.float32)
+                # hand bbox may still be None; keep it minimal but safe
+                memmaps["lhand_bbox"][kept_t] = np.asarray(person0.get("lhand_bbox", [np.nan]*4), dtype=np.float32).reshape(4)
+                memmaps["rhand_bbox"][kept_t] = np.asarray(person0.get("rhand_bbox", [np.nan]*4), dtype=np.float32).reshape(4)
 
                 memmaps["frame_indices"][kept_t] = np.int32(idx)
                 kept_t += 1
@@ -881,7 +903,7 @@ Examples:
     parser.add_argument("--fov_path", default="", type=str, help="Path to fov estimation model folder (or SAM3D_FOV_PATH)")
     parser.add_argument("--mhr_path", default="", type=str, help="Path to MoHR/assets folder (or SAM3D_MHR_PATH)")
 
-    parser.add_argument("--bbox_thresh", default=0.8, type=float, help="Bounding box detection threshold")
+    parser.add_argument("--bbox_thresh", default=0.7, type=float, help="Bounding box detection threshold")
     parser.add_argument(
         "--use_mask",
         action="store_true",
