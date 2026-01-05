@@ -196,7 +196,9 @@ class MHRHead(nn.Module):
                 + global_trans_ori
             )
 
+        # body_pose_params [1, 133]
         body_pose_params = body_pose_params[..., :130]
+        # body_pose_params [1, 130]
 
         # Convert from scale and shape params to actual scales and vertices
         ## Add singleton batches in case...
@@ -221,12 +223,18 @@ class MHRHead(nn.Module):
             )
 
         # full_pose_params = [global_trans (3), global_rot (3), body_pose_params (:130)]
+        # print(scales.shape) # [1, 68]
         model_params = torch.cat([full_pose_params, scales], dim=1)
-        #model_params[0,:6] = 0
 
         if self.enable_hand_model:
             # Zero out non-hand parameters
             model_params[:, self.nonhand_param_idxs] = 0
+
+        if 1:
+            model_params[0,:6] = 0      # zero out global_trans and global_rot
+            model_params[0,-68:] = 0    # zero out scales
+            shape_params[:,:]   = 0     # zero out shape
+            expr_params[:,:]    = 0     # zero out expression
 
         # shape_params  [1, 45]
         # model_params  [1, 204]
@@ -236,6 +244,9 @@ class MHRHead(nn.Module):
         curr_skinned_verts  = curr_skinned_verts / 100
         curr_joint_coords   = curr_joint_coords / 100
         curr_joint_rots     = roma.unitquat_to_rotmat(curr_joint_quats)
+        #print(curr_skel_state.shape)    # [1, 127, 8]
+        #print(curr_joint_rots.shape)    # [1, 127, 3, 3]
+        #sys.exit()
 
         # Prepare returns
         to_return = [curr_skinned_verts]

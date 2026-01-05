@@ -2,7 +2,7 @@
 set -euo pipefail
 shopt -s nullglob
 
-# CUDA_VISIBLE_DEVICES=0 TEST_MODE=0 ./run_sam3dbody_for_mocap_dataset.sh --DATA_ROOT /home/haziq/datasets/mocap/data/self/
+# CUDA_VISIBLE_DEVICES=0 FORCE=1 TEST_MODE=0 ./run_sam3dbody_for_mocap_dataset.sh --DATA_ROOT /home/haziq/datasets/mocap/data/self/
 # CUDA_VISIBLE_DEVICES=0 TEST_MODE=0 ./run_sam3dbody_for_mocap_dataset.sh --DATA_ROOT /media/haziq/Haziq/mocap/data/self --shard 0 --num_shards 2 2>&1 | tee self_shard0_part0.txt
 # CUDA_VISIBLE_DEVICES=1 TEST_MODE=0 ./run_sam3dbody_for_mocap_dataset.sh --DATA_ROOT /media/haziq/Haziq/mocap/data/self --shard 1 --num_shards 2 2>&1 | tee self_shard1_part0.txt
 
@@ -78,8 +78,9 @@ for idx in "${!VIDS[@]}"; do
   echo "NPZ   : $out_npz"
   echo "================================================"
 
-  if [[ -f "$out_npz" ]]; then
-    echo "[SKIP] NPZ already exists"
+  FORCE="${FORCE:-0}"
+  if [[ -f "$out_npz" && "$FORCE" -ne 1 ]]; then
+    echo "[SKIP] NPZ already exists (use FORCE=1 to overwrite)"
     echo
     continue
   fi

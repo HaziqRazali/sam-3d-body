@@ -201,12 +201,10 @@ class SAM3DBodyEstimator:
         for idx in range(batch["img"].shape[1]):
 
             """
-
             if we refer to 
             file:///home/haziq/sam-3d-body/sam_3d_body/models/meta_arch/sam3d_body.py self.head_pose.mhr_forward() where verts is computed,
             pose_output["body_pose"]
             pose_output["hand"]
-
             """
 
             all_out.append(
@@ -226,7 +224,7 @@ class SAM3DBodyEstimator:
                     "expr_params": out["face"][idx],
                     "mask": masks[idx] if masks is not None else None,
                     "pred_joint_coords": out["pred_joint_coords"][idx],
-                    "pred_global_rots": out["joint_global_rots"][idx],
+                    "pred_global_rots": out["joint_global_rots"][idx],  # are these the angles we want ?
                 }
             )
 

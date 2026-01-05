@@ -1626,6 +1626,14 @@ class SAM3DBody(BaseModel):
             ] = 0  # pred_pose_raw is not valid anymore
             pose_output["mhr"]["mhr_model_params"] = mhr_model_params
 
+            """Notes
+            
+            I have verified that pred_global_rots that gets saved in the dictionary via all_out.append() in 
+            file:///home/haziq/sam-3d-body/sam_3d_body/sam_3d_body_estimator.py
+            is the exact same as the joint_global_rots that gets returned by self.mhr           
+
+            """
+
         ########################################################
         # Project to 2D
         pred_keypoints_3d_proj = (
