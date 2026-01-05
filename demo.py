@@ -442,12 +442,33 @@ def process_one_input(estimator, image_or_path, bbox_thr, use_mask, tmp_dir=None
     # Case 2: numpy frame (assumed RGB)
     frame_rgb = image_or_path
     try:
+        # goes into
+        # file:///home/haziq/sam-3d-body/sam_3d_body/sam_3d_body_estimator.py process_one_image()
         outputs = estimator.process_one_image(frame_rgb, bbox_thr=bbox_thr, use_mask=use_mask)
+
+        """
+        for k,v in outputs[0].items():
+            print(k, v.shape)
+        bbox (4,)
+        focal_length ()
+        pred_keypoints_3d (70, 3)
+        pred_keypoints_2d (70, 2)
+        pred_vertices (18439, 3)
+        pred_cam_t (3,)
+        pred_pose_raw (266,)
+        global_rot (3,)
+        body_pose_params (133,)
+        hand_pose_params (108,)
+        scale_params (28,)
+        shape_params (45,)
+        expr_params (72,)
+        """
         return add_vertices_alias(outputs)
+    
     except Exception:
         if tmp_dir is None or frame_idx is None:
             raise
-
+        
         os.makedirs(tmp_dir, exist_ok=True)
 
         # estimator wants a file path -> write temp image (BGR for cv2.imwrite)
@@ -571,6 +592,9 @@ def run_on_video(args, estimator, output_folder):
 
             frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
 
+            # goes into 
+            # /home/haziq/sam-3d-body/demo.py process_one_input()
+            # and then into /home/haziq/sam-3d-body/sam_3d_body/sam_3d_body_estimator.py process_one_image()
             outputs = process_one_input(
                 estimator,
                 frame_rgb,
@@ -596,22 +620,22 @@ def run_on_video(args, estimator, output_folder):
 
                 person0 = outputs[0]
 
-                memmaps["vertices"][kept_t] = person0["pred_vertices"].astype(np.float32, copy=False)
-                memmaps["pred_pose_raw"][kept_t] = person0["pred_pose_raw"].astype(np.float32, copy=False)
-                memmaps["pred_cam_t"][kept_t] = person0["pred_cam_t"].astype(np.float32, copy=False)
-                memmaps["pred_joint_coords"][kept_t] = person0["pred_joint_coords"].astype(np.float32, copy=False)
-                memmaps["pred_keypoints_3d"][kept_t] = person0["pred_keypoints_3d"].astype(np.float32, copy=False)
-                memmaps["pred_keypoints_2d"][kept_t] = person0["pred_keypoints_2d"].astype(np.float32, copy=False)
-                memmaps["bbox"][kept_t] = person0["bbox"].astype(np.float32, copy=False)
-                memmaps["focal_length"][kept_t] = np.float32(person0["focal_length"])
+                memmaps["vertices"][kept_t]             = person0["pred_vertices"].astype(np.float32, copy=False)
+                memmaps["pred_pose_raw"][kept_t]        = person0["pred_pose_raw"].astype(np.float32, copy=False)
+                memmaps["pred_cam_t"][kept_t]           = person0["pred_cam_t"].astype(np.float32, copy=False)
+                memmaps["pred_joint_coords"][kept_t]    = person0["pred_joint_coords"].astype(np.float32, copy=False)
+                memmaps["pred_keypoints_3d"][kept_t]    = person0["pred_keypoints_3d"].astype(np.float32, copy=False)
+                memmaps["pred_keypoints_2d"][kept_t]    = person0["pred_keypoints_2d"].astype(np.float32, copy=False)
+                memmaps["bbox"][kept_t]                 = person0["bbox"].astype(np.float32, copy=False)
+                memmaps["focal_length"][kept_t]         = np.float32(person0["focal_length"])
 
-                memmaps["global_rot"][kept_t] = person0["global_rot"].astype(np.float32, copy=False)
-                memmaps["body_pose_params"][kept_t] = person0["body_pose_params"].astype(np.float32, copy=False)
-                memmaps["hand_pose_params"][kept_t] = person0["hand_pose_params"].astype(np.float32, copy=False)
-                memmaps["scale_params"][kept_t] = person0["scale_params"].astype(np.float32, copy=False)
-                memmaps["shape_params"][kept_t] = person0["shape_params"].astype(np.float32, copy=False)
-                memmaps["expr_params"][kept_t] = person0["expr_params"].astype(np.float32, copy=False)
-                memmaps["pred_global_rots"][kept_t] = person0["pred_global_rots"].astype(np.float32, copy=False)
+                memmaps["global_rot"][kept_t]           = person0["global_rot"].astype(np.float32, copy=False)
+                memmaps["body_pose_params"][kept_t]     = person0["body_pose_params"].astype(np.float32, copy=False)
+                memmaps["hand_pose_params"][kept_t]     = person0["hand_pose_params"].astype(np.float32, copy=False)
+                memmaps["scale_params"][kept_t]         = person0["scale_params"].astype(np.float32, copy=False)
+                memmaps["shape_params"][kept_t]         = person0["shape_params"].astype(np.float32, copy=False)
+                memmaps["expr_params"][kept_t]          = person0["expr_params"].astype(np.float32, copy=False)
+                memmaps["pred_global_rots"][kept_t]     = person0["pred_global_rots"].astype(np.float32, copy=False)
 
                 # hand bbox may still be None; keep it minimal but safe
                 memmaps["lhand_bbox"][kept_t] = np.asarray(person0.get("lhand_bbox", [np.nan]*4), dtype=np.float32).reshape(4)

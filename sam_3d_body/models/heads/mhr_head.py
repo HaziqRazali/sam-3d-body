@@ -178,6 +178,7 @@ class MHRHead(nn.Module):
         vertex_offsets=None,
     ):
 
+        # does not enter
         if self.enable_hand_model:
             # Transfer wrist-centric predictions to the body.
             global_rot_ori = global_rot.clone()
@@ -218,21 +219,23 @@ class MHRHead(nn.Module):
             full_pose_params = self.replace_hands_in_pose(
                 full_pose_params, hand_pose_params
             )
+
+        # full_pose_params = [global_trans (3), global_rot (3), body_pose_params (:130)]
         model_params = torch.cat([full_pose_params, scales], dim=1)
+        #model_params[0,:6] = 0
 
         if self.enable_hand_model:
             # Zero out non-hand parameters
             model_params[:, self.nonhand_param_idxs] = 0
 
-        curr_skinned_verts, curr_skel_state = self.mhr(
-            shape_params, model_params, expr_params
-        )
-        curr_joint_coords, curr_joint_quats, _ = torch.split(
-            curr_skel_state, [3, 4, 1], dim=2
-        )
-        curr_skinned_verts = curr_skinned_verts / 100
-        curr_joint_coords = curr_joint_coords / 100
-        curr_joint_rots = roma.unitquat_to_rotmat(curr_joint_quats)
+        # shape_params  [1, 45]
+        # model_params  [1, 204]
+        # expr_params   [1, 72]
+        curr_skinned_verts, curr_skel_state     = self.mhr(shape_params, model_params, expr_params)
+        curr_joint_coords, curr_joint_quats, _  = torch.split(curr_skel_state, [3, 4, 1], dim=2)
+        curr_skinned_verts  = curr_skinned_verts / 100
+        curr_joint_coords   = curr_joint_coords / 100
+        curr_joint_rots     = roma.unitquat_to_rotmat(curr_joint_quats)
 
         # Prepare returns
         to_return = [curr_skinned_verts]

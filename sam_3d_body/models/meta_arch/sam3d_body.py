@@ -1596,12 +1596,15 @@ class SAM3DBody(BaseModel):
 
         # Re-run forward
         with torch.no_grad():
+
+            # goes into
+            # file:///home/haziq/sam-3d-body/sam_3d_body/models/heads/mhr_head.py mhr_forward()
             verts, j3d, jcoords, mhr_model_params, joint_global_rots = (
                 self.head_pose.mhr_forward(
                     global_trans=pose_output["mhr"]["global_rot"] * 0,
                     global_rot=pose_output["mhr"]["global_rot"],
-                    body_pose_params=pose_output["mhr"]["body_pose"],
-                    hand_pose_params=pose_output["mhr"]["hand"],
+                    body_pose_params=pose_output["mhr"]["body_pose"],   # [1, 133]
+                    hand_pose_params=pose_output["mhr"]["hand"],        # [1, 108]
                     scale_params=pose_output["mhr"]["scale"],
                     shape_params=pose_output["mhr"]["shape"],
                     expr_params=pose_output["mhr"]["face"],

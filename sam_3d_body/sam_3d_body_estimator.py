@@ -176,6 +176,9 @@ class SAM3DBodyEstimator:
         else:
             cam_int = batch["cam_int"].clone()
 
+        # goes into 
+        # file:///home/haziq/sam-3d-body/sam_3d_body/models/meta_arch/sam3d_body.py run_inference()
+        # this is also where i get pred_verts
         outputs = self.model.run_inference(
             img,
             batch,
@@ -183,6 +186,9 @@ class SAM3DBodyEstimator:
             transform_hand=self.transform_hand,
             thresh_wrist_angle=self.thresh_wrist_angle,
         )
+
+
+        # code goes in
         if inference_type == "full":
             pose_output, batch_lhand, batch_rhand, _, _ = outputs
         else:
@@ -193,6 +199,16 @@ class SAM3DBodyEstimator:
         out = recursive_to(out, "numpy")
         all_out = []
         for idx in range(batch["img"].shape[1]):
+
+            """
+
+            if we refer to 
+            file:///home/haziq/sam-3d-body/sam_3d_body/models/meta_arch/sam3d_body.py self.head_pose.mhr_forward() where verts is computed,
+            pose_output["body_pose"]
+            pose_output["hand"]
+
+            """
+
             all_out.append(
                 {
                     "bbox": batch["bbox"][0, idx].cpu().numpy(),
@@ -203,8 +219,8 @@ class SAM3DBodyEstimator:
                     "pred_cam_t": out["pred_cam_t"][idx],
                     "pred_pose_raw": out["pred_pose_raw"][idx],
                     "global_rot": out["global_rot"][idx],
-                    "body_pose_params": out["body_pose"][idx],
-                    "hand_pose_params": out["hand"][idx],
+                    "body_pose_params": out["body_pose"][idx],  # we used this to generate verts
+                    "hand_pose_params": out["hand"][idx],       # we used this to generate verts
                     "scale_params": out["scale"][idx],
                     "shape_params": out["shape"][idx],
                     "expr_params": out["face"][idx],
