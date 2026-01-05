@@ -2,7 +2,8 @@
 set -euo pipefail
 shopt -s nullglob
 
-# TEST_MODE=0 ./run_sam3dbody_for_mocap_dataset.sh --DATA_ROOT /home/haziqmr/datasets/mocap/data/self --shard 0 --num_shards 1
+# CUDA_VISIBLE_DEVICES=0 TEST_MODE=0 ./run_sam3dbody_for_mocap_dataset.sh --DATA_ROOT /media/haziq/Haziq/mocap/data/self --shard 0 --num_shards 2 2>&1 | tee self_shard0_part0.txt
+# CUDA_VISIBLE_DEVICES=1 TEST_MODE=0 ./run_sam3dbody_for_mocap_dataset.sh --DATA_ROOT /media/haziq/Haziq/mocap/data/self --shard 1 --num_shards 2 2>&1 | tee self_shard1_part0.txt
 
 # Default (can be overridden via --DATA_ROOT or env var DATA_ROOT)
 DATA_ROOT="${DATA_ROOT:-/media/haziq/Haziq/mocap/data/kit}"
