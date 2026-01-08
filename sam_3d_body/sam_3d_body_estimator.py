@@ -29,7 +29,7 @@ class SAM3DBodyEstimator:
         fov_estimator=None,
     ):
         self.device = sam_3d_body_model.device
-        self.model, self.cfg = sam_3d_body_model, model_cfg
+        self.model, self.cfg = sam_3d_body_model, model_cfg # sam_3d_body.models.meta_arch.sam3d_body.SAM3DBody
         self.detector = human_detector
         self.sam = human_segmentor
         self.fov_estimator = fov_estimator

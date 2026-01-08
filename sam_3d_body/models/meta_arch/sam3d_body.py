@@ -54,8 +54,8 @@ class SAM3DBody(BaseModel):
         # Create backbone feature extractor for human crops
         self.backbone = create_backbone(self.cfg.MODEL.BACKBONE.TYPE, self.cfg)
 
-        # Create header for pose estimation output
-        self.head_pose = build_head(self.cfg, self.cfg.MODEL.PERSON_HEAD.POSE_TYPE)
+        # Create header for pose estimation output 
+        self.head_pose = build_head(self.cfg, self.cfg.MODEL.PERSON_HEAD.POSE_TYPE) # sam_3d_body.models.heads.mhr_head.MHRHead
         self.head_pose.hand_pose_comps_ori = nn.Parameter(
             self.head_pose.hand_pose_comps.clone(), requires_grad=False
         )

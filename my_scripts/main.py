@@ -553,12 +553,13 @@ def compute_task(task_name, joints, body_scale, plane_scale):
 # Main
 # =============================
 
+# python main.py --filename "/home/haziq/datasets/telept/data/ipad/rgb_1764569430654/timestamps/ts_0003_01-38.357_f001913" --task "left_shoulder_internal_rotation"
+# python main.py --filename "/home/haziq/datasets/telept/data/ipad/rgb_1764569971278/timestamps/ts_0000_00-20.347_f000399" --task "left_hip_internal_rotation"
+
 # python main.py --filename "/home/haziq/datasets/telept/data/ipad/rgb_1764569430654/timestamps/ts_0000_00-21.744_f000423" --task "left_shoulder_flexion"
 # python main.py --filename "/home/haziq/datasets/telept/data/ipad/rgb_1764569430654/timestamps/ts_0001_00-17.978_f000350" --task "left_shoulder_extension"
 # python main.py --filename "/home/haziq/datasets/telept/data/ipad/rgb_1764569430654/timestamps/ts_0002_00-31.970_f000622" --task "left_elbow_flexion"
 # python main.py --filename "/home/haziq/datasets/telept/data/ipad/rgb_1764569430654/timestamps/ts_0004_01-28.586_f001723" --task "left_shoulder_abduction"
-# python main.py --filename "/home/haziq/datasets/telept/data/ipad/rgb_1764569430654/timestamps/ts_0003_01-38.357_f001913" --task "left_shoulder_internal_rotation"
-# python main.py --filename "/home/haziq/datasets/telept/data/ipad/rgb_1764569971278/timestamps/ts_0000_00-20.347_f000399" --task "left_hip_internal_rotation"
 # python main.py --filename "/home/haziq/datasets/telept/data/ipad/rgb_1764569695903/timestamps/ts_0001_00-31.270_f000622" --task "left_knee_flexion"
 
 def main():

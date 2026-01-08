@@ -398,6 +398,22 @@ def build_estimator(args):
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     model, model_cfg = load_sam_3d_body(args.checkpoint_path, device=device, mhr_path=mhr_path)
 
+    # # ✅ PRINT HERE (after model is built+loaded)
+    # print(
+    #     "B: after load_sam_3d_body, head_pose.faces:",
+    #     "sum=", model.head_pose.faces.sum().item(),
+    #     "min=", model.head_pose.faces.min().item(),
+    #     "max=", model.head_pose.faces.max().item(),
+    #     "shape=", tuple(model.head_pose.faces.shape),
+    #     "dtype=", model.head_pose.faces.dtype,
+    # )
+
+    # # (optional) show which parameter name it is in the model
+    # for n, p in model.named_parameters():
+    #     if n.endswith("faces") or ".faces" in n:
+    #         print("faces param name:", n, "sum=", p.sum().item())
+    #         break
+
     human_detector, human_segmentor, fov_estimator = None, None, None
 
     if args.detector_name:
