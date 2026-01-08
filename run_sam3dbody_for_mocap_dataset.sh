@@ -2,7 +2,8 @@
 set -euo pipefail
 shopt -s nullglob
 
-# CUDA_VISIBLE_DEVICES=0 FORCE=1 TEST_MODE=0 ./run_sam3dbody_for_mocap_dataset.sh --DATA_ROOT /home/haziq/datasets/mocap/data/self/
+# CUDA_VISIBLE_DEVICES=0 FORCE=1 TEST_MODE=1 ./run_sam3dbody_for_mocap_dataset.sh --DATA_ROOT /home/haziq/datasets/mocap/data/self/
+# CUDA_VISIBLE_DEVICES=0 FORCE=0 TEST_MODE=0 ./run_sam3dbody_for_mocap_dataset.sh --DATA_ROOT /media/haziq/Haziq/mocap/data/self
 # CUDA_VISIBLE_DEVICES=0 TEST_MODE=0 ./run_sam3dbody_for_mocap_dataset.sh --DATA_ROOT /media/haziq/Haziq/mocap/data/self --shard 0 --num_shards 2 2>&1 | tee self_shard0_part0.txt
 # CUDA_VISIBLE_DEVICES=1 TEST_MODE=0 ./run_sam3dbody_for_mocap_dataset.sh --DATA_ROOT /media/haziq/Haziq/mocap/data/self --shard 1 --num_shards 2 2>&1 | tee self_shard1_part0.txt
 
