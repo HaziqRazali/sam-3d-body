@@ -221,6 +221,7 @@ class MHRHead(nn.Module):
             full_pose_params = self.replace_hands_in_pose(
                 full_pose_params, hand_pose_params
             )
+        
 
         # full_pose_params = [global_trans (3), global_rot (3), body_pose_params (:130)]
         # print(scales.shape) # [1, 68]
@@ -230,7 +231,7 @@ class MHRHead(nn.Module):
             # Zero out non-hand parameters
             model_params[:, self.nonhand_param_idxs] = 0
 
-        if 1:
+        if 0:
             model_params[0,:6] = 0      # zero out global_trans and global_rot
             model_params[0,-68:] = 0    # zero out scales
             shape_params[:,:]   = 0     # zero out shape
@@ -241,6 +242,8 @@ class MHRHead(nn.Module):
         # expr_params   [1, 72]
         curr_skinned_verts, curr_skel_state     = self.mhr(shape_params, model_params, expr_params)
         curr_joint_coords, curr_joint_quats, _  = torch.split(curr_skel_state, [3, 4, 1], dim=2)
+        #print(curr_joint_coords.shape, curr_joint_quats.shape) # [1, 127, 3] [1, 127, 4]
+
         curr_skinned_verts  = curr_skinned_verts / 100
         curr_joint_coords   = curr_joint_coords / 100
         curr_joint_rots     = roma.unitquat_to_rotmat(curr_joint_quats)
