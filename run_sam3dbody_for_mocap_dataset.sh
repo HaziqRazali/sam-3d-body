@@ -2,8 +2,10 @@
 set -euo pipefail
 shopt -s nullglob
 
-# CUDA_VISIBLE_DEVICES=0 FORCE=1 TEST_MODE=1 ./run_sam3dbody_for_mocap_dataset.sh --DATA_ROOT /home/haziq/datasets/mocap/data/self/
-# CUDA_VISIBLE_DEVICES=0 FORCE=0 TEST_MODE=0 ./run_sam3dbody_for_mocap_dataset.sh --DATA_ROOT /media/haziq/Haziq/mocap/data/self
+# CUDA_VISIBLE_DEVICES=0 FORCE=1 TEST_MODE=1 ./run_sam3dbody_for_mocap_dataset.sh --DATA_ROOT /home/haziq/datasets/mocap/data/fit3d/ --ignore-cams "50591643,58860488"
+# CUDA_VISIBLE_DEVICES=0 FORCE=1 TEST_MODE=1 ./run_sam3dbody_for_mocap_dataset.sh --DATA_ROOT /home/haziq/datasets/mocap/data/sc3d/ --ignore-cams "50591643,58860488"
+# CUDA_VISIBLE_DEVICES=0 FORCE=1 TEST_MODE=1 ./run_sam3dbody_for_mocap_dataset.sh --DATA_ROOT /home/haziq/datasets/mocap/data/humaneva/ --ignore-cams "BW1,BW2,C2"
+
 # CUDA_VISIBLE_DEVICES=0 TEST_MODE=0 ./run_sam3dbody_for_mocap_dataset.sh --DATA_ROOT /media/haziq/Haziq/mocap/data/self --shard 0 --num_shards 2 2>&1 | tee self_shard0_part0.txt
 # CUDA_VISIBLE_DEVICES=1 TEST_MODE=0 ./run_sam3dbody_for_mocap_dataset.sh --DATA_ROOT /media/haziq/Haziq/mocap/data/self --shard 1 --num_shards 2 2>&1 | tee self_shard1_part0.txt
 
@@ -26,6 +28,14 @@ NUM_SHARDS=1
 if [[ "${1:-}" == "--shard" && "${3:-}" == "--num_shards" ]]; then
   SHARD="$2"
   NUM_SHARDS="$4"
+  shift 4
+fi
+
+# Args: --ignore-cams "cam1,cam2,cam3"
+IGNORE_CAMS=""
+if [[ "${1:-}" == "--ignore-cams" ]]; then
+  IGNORE_CAMS="$2"
+  shift 2
 fi
 
 echo "[START] $(date) GPU=${CUDA_VISIBLE_DEVICES:-unset} TEST_MODE=$TEST_MODE DATA_ROOT=$DATA_ROOT SHARD=$SHARD/$NUM_SHARDS"
@@ -51,16 +61,27 @@ fi
 for idx in "${!VIDS[@]}"; do
   vid="${VIDS[$idx]}"
 
-  # shard filter
-  if (( idx % NUM_SHARDS != SHARD )); then
-    continue
-  fi
-
   # split + sequence + camera
   # For: .../$split/$seq/videos/$cam/$video
   split="$(basename "$(dirname "$(dirname "$(dirname "$(dirname "$vid")")")")")"  # train|val
   seq="$(basename "$(dirname "$(dirname "$(dirname "$vid")")")")"                 # e.g., haziq
   cam="$(basename "$(dirname "$vid")")"                                          # e.g., laptop_webcam
+
+  # shard filter
+  if (( idx % NUM_SHARDS != SHARD )); then
+    continue
+  fi
+
+  # camera ignore filter
+  if [[ -n "$IGNORE_CAMS" ]]; then
+    for ignore_cam in $(echo "$IGNORE_CAMS" | tr ',' ' '); do
+      if [[ "$cam" == "$ignore_cam" ]]; then
+        echo "[SKIP] Camera ignored: $cam"
+        echo
+        continue 2  # continue outer for loop
+      fi
+    done
+  fi
 
   base="$(basename "$vid")"
   base="${base%.*}"  # strip extension
