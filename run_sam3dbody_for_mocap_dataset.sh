@@ -9,13 +9,13 @@ shopt -s nullglob
 # CUDA_VISIBLE_DEVICES=3 FORCE=1 TEST_MODE=0 ./run_sam3dbody_for_mocap_dataset.sh --DATA_ROOT /home/haziq/datasets/mocap/data/fit3d/ --shard 3 --num_shards 4 --ignore-cams "50591643,58860488" 2>&1 | tee fit3d_shard3_part0.txt
 
 # Ali
-# CUDA_VISIBLE_DEVICES=0 FORCE=1 TEST_MODE=1 ./run_sam3dbody_for_mocap_dataset.sh --DATA_ROOT /media/haziq/Haziq/mocap/data/sc3d/ --shard 0 --num_shards 2 --ignore-cams "50591643,58860488" 2>&1 | tee sc3d_shard0_part0.txt
-# CUDA_VISIBLE_DEVICES=1 FORCE=1 TEST_MODE=1 ./run_sam3dbody_for_mocap_dataset.sh --DATA_ROOT /media/haziq/Haziq/mocap/data/sc3d/ --shard 1 --num_shards 2 --ignore-cams "50591643,58860488" 2>&1 | tee sc3d_shard1_part0.txt
+# CUDA_VISIBLE_DEVICES=0 FORCE=1 TEST_MODE=0 ./run_sam3dbody_for_mocap_dataset.sh --DATA_ROOT /media/haziq/Haziq/mocap/data/sc3d/ --shard 0 --num_shards 2 --ignore-cams "50591643,58860488" 2>&1 | tee sc3d_shard0_part0.txt
+# CUDA_VISIBLE_DEVICES=1 FORCE=1 TEST_MODE=0 ./run_sam3dbody_for_mocap_dataset.sh --DATA_ROOT /media/haziq/Haziq/mocap/data/sc3d/ --shard 1 --num_shards 2 --ignore-cams "50591643,58860488" 2>&1 | tee sc3d_shard1_part0.txt
 
 # Cheston
-# CUDA_VISIBLE_DEVICES=0 FORCE=1 TEST_MODE=1 ./run_sam3dbody_for_mocap_dataset.sh --DATA_ROOT /media/haziq/Haziq/mocap/data/humaneva/ --shard 0 --num_shards 3 --ignore-cams "BW1,BW2,C2" 2>&1 | tee humaneva_shard0_part0.txt
-# CUDA_VISIBLE_DEVICES=1 FORCE=1 TEST_MODE=1 ./run_sam3dbody_for_mocap_dataset.sh --DATA_ROOT /media/haziq/Haziq/mocap/data/humaneva/ --shard 1 --num_shards 3 --ignore-cams "BW1,BW2,C2" 2>&1 | tee humaneva_shard1_part0.txt
-# CUDA_VISIBLE_DEVICES=2 FORCE=1 TEST_MODE=1 ./run_sam3dbody_for_mocap_dataset.sh --DATA_ROOT /media/haziq/Haziq/mocap/data/humaneva/ --shard 2 --num_shards 3 --ignore-cams "BW1,BW2,C2" 2>&1 | tee humaneva_shard2_part0.txt
+# CUDA_VISIBLE_DEVICES=0 FORCE=1 TEST_MODE=0 ./run_sam3dbody_for_mocap_dataset.sh --DATA_ROOT /media/haziq/Haziq/mocap/data/humaneva/ --shard 0 --num_shards 3 --ignore-cams "BW1,BW2,C2" 2>&1 | tee humaneva_shard0_part0.txt
+# CUDA_VISIBLE_DEVICES=1 FORCE=1 TEST_MODE=0 ./run_sam3dbody_for_mocap_dataset.sh --DATA_ROOT /media/haziq/Haziq/mocap/data/humaneva/ --shard 1 --num_shards 3 --ignore-cams "BW1,BW2,C2" 2>&1 | tee humaneva_shard1_part0.txt
+# CUDA_VISIBLE_DEVICES=2 FORCE=1 TEST_MODE=0 ./run_sam3dbody_for_mocap_dataset.sh --DATA_ROOT /media/haziq/Haziq/mocap/data/humaneva/ --shard 2 --num_shards 3 --ignore-cams "BW1,BW2,C2" 2>&1 | tee humaneva_shard2_part0.txt
 
 # CUDA_VISIBLE_DEVICES=0 TEST_MODE=0 ./run_sam3dbody_for_mocap_dataset.sh --DATA_ROOT /media/haziq/Haziq/mocap/data/self --shard 0 --num_shards 2 2>&1 | tee self_shard0_part0.txt
 # CUDA_VISIBLE_DEVICES=1 TEST_MODE=0 ./run_sam3dbody_for_mocap_dataset.sh --DATA_ROOT /media/haziq/Haziq/mocap/data/self --shard 1 --num_shards 2 2>&1 | tee self_shard1_part0.txt
