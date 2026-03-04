@@ -176,9 +176,34 @@ class SAM3DBodyEstimator:
         else:
             cam_int = batch["cam_int"].clone()
 
-        # goes into 
-        # file:///home/haziq/sam-3d-body/sam_3d_body/models/meta_arch/sam3d_body.py run_inference()
         # this is also where i get pred_verts
+
+        # self.model.run_inference(img, batch, inference_type="full", ...)    L1197
+        # file:///home/haziq/sam-3d-body/sam_3d_body/models/meta_arch/sam3d_body.py
+
+        # └─ forward_step(batch, decoder_type="body")                         L1178
+        #    file:///home/haziq/sam-3d-body/sam_3d_body/models/meta_arch/sam3d_body.py
+
+        #    └─ forward_pose_branch(batch)                                    L1057
+        #       file:///home/haziq/sam-3d-body/sam_3d_body/models/meta_arch/sam3d_body.py
+
+        #       └─ forward_decoder(image_embeddings, ...)                     L289
+        #          file:///home/haziq/sam-3d-body/sam_3d_body/models/meta_arch/sam3d_body.py
+
+        #          └─ self.decoder(..., token_to_pose_output_fn=...)
+        #             # decoder calls token_to_pose_output_fn after each transformer layer
+        #             └─ token_to_pose_output_fn → self.head_pose(pose_token, prev_pose)   L4721
+        #                file:///home/haziq/sam-3d-body/sam_3d_body/models/meta_arch/sam3d_body.py
+        #                └─ MHRHead.forward(x, init_estimate)                 L288
+        #                   file:///home/haziq/sam-3d-body/sam_3d_body/models/heads/mhr_head.py
+        #                   # pred_pose_cont = pred[:, 6 : 6 + body_cont_dim]   (B, 260)
+        #                   # pred_pose_euler = compact_cont_to_model_params_body(pred_pose_cont)
+        #                   #                   returns (B, 133): 130 body + 3 jaw
+        #                   # pred_pose_euler[:, -3:] = 0  # zero jaw (indices 130-132)
+        #                   └─ self.mhr_forward(body_pose_params=pred_pose_euler, ...)      L163
+        #                      file:///home/haziq/sam-3d-body/sam_3d_body/models/heads/mhr_head.py
+        #                      └─ body_pose_params = body_pose_params[..., :130]            L200
+        #                         file:///home/haziq/sam-3d-body/sam_3d_body/models/heads/mhr_head.py
         outputs = self.model.run_inference(
             img,
             batch,
@@ -195,6 +220,28 @@ class SAM3DBodyEstimator:
             pose_output = outputs
 
         out = pose_output["mhr"]
+        # pred_pose_raw	(2, 266)
+        # pred_pose_rotmat	None
+        # global_rot	(2, 3)
+        # body_pose	(2, 133)
+        # shape	(2, 45)
+        # scale	(2, 28)
+        # hand	(2, 108)
+        # face	(2, 72)
+        # pred_keypoints_3d	(2, 70, 3)
+        # pred_vertices	(2, 18439, 3)
+        # pred_joint_coords	(2, 127, 3)
+        # faces	(36874, 3) (ndarray)
+        # joint_global_rots	(2, 127, 3, 3)
+        # mhr_model_params	(2, 204)
+        # pred_cam	(2, 3)
+        # pred_cam_t	(2, 3)
+        # focal_length	(2,)
+        # pred_keypoints_2d_verts	(2, 18439, 2)
+        # pred_keypoints_2d	(2, 70, 2)
+        # pred_keypoints_2d_depth	(2, 70)
+        # pred_keypoints_2d_cropped	(2, 70, 2)
+
         out = recursive_to(out, "cpu")
         out = recursive_to(out, "numpy")
         all_out = []
@@ -225,6 +272,7 @@ class SAM3DBodyEstimator:
                     "mask": masks[idx] if masks is not None else None,
                     "pred_joint_coords": out["pred_joint_coords"][idx],
                     "pred_global_rots": out["joint_global_rots"][idx],  # are these the angles we want ?
+                    "mhr_model_params": out["mhr_model_params"][idx],   # (204,) — ready to pass to MHR.forward() directly
                 }
             )
 

@@ -340,4 +340,41 @@ ROM_TASKS = {
         },
     },
 
+    "left_hip_flexion": {
+        # Sagittal plane, thigh vector (hip -> knee) vs torso-down reference.
+        # +  = flexion (thigh swings forward)
+        # -  = extension (thigh swings backward)
+        # 0° = standing upright (thigh hanging straight down)
+        "plane": {
+            "type": "torso_sagittal",
+            "origin": {"type": "joint", "name": "left_hip"},
+            "up":    {"type": "vector", "from": "pelvis", "to": "spine3"},
+            "right": {"type": "vector", "from": "left_hip", "to": "right_hip"},
+        },
+        "main_vector": {
+            "from": "left_hip",
+            "to": "left_knee",
+            "project_direction_to_plane": True,
+        },
+        "reference_vector": {
+            "type": "vector",
+            "from": "spine3",
+            "to": "pelvis",  # DOWN = 0 deg reference
+            "origin": "left_hip",
+            "project_direction_to_plane": True,
+            "match_length_to": "main",
+        },
+        "angle": {
+            "type": "signed_in_plane",
+            "unit": "degrees",
+        },
+        "viz": {
+            "draw_plane": True,
+            "draw_raw_vector": True,
+            "draw_projected_vector": True,
+            "draw_reference_vector": True,
+            "label_angle": True,
+        },
+    },
+
 }

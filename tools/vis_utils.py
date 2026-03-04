@@ -10,7 +10,6 @@ LIGHT_BLUE = (0.65098039, 0.74117647, 0.85882353)
 visualizer = SkeletonVisualizer(line_width=2, radius=5)
 visualizer.set_pose_meta(mhr70_pose_info)
 
-
 def visualize_sample(img_cv2, outputs, faces):
     img_keypoints = img_cv2.copy()
     img_mesh = img_cv2.copy()
@@ -91,7 +90,7 @@ def visualize_sample(img_cv2, outputs, faces):
 
     return rend_img
 
-def visualize_sample_together(img_cv2, outputs, faces):
+def visualize_sample_together(img_cv2, outputs, faces, render_only=False):
     # Render everything together
     img_keypoints = img_cv2.copy()
     img_mesh = img_cv2.copy()
@@ -147,6 +146,9 @@ def visualize_sample_together(img_cv2, outputs, faces):
         )
         * 255
     )
+
+    if render_only:
+        return img_mesh
 
     cur_img = np.concatenate([img_cv2, img_keypoints, img_mesh, img_mesh_side], axis=1)
 

@@ -452,7 +452,26 @@ def process_one_input(estimator, image_or_path, bbox_thr, use_mask, tmp_dir=None
     """
     # Case 1: original API (path)
     if isinstance(image_or_path, str):
+        # file:///home/haziq/sam-3d-body/sam_3d_body/sam_3d_body_estimator.py process_one_image()
         outputs = estimator.process_one_image(image_or_path, bbox_thr=bbox_thr, use_mask=use_mask)
+        # bbox	(4,)
+        # focal_length	float32 scalar
+        # pred_keypoints_3d	(70, 3)
+        # pred_keypoints_2d	(70, 2)
+        # pred_vertices	(18439, 3)
+        # pred_cam_t	(3,)
+        # pred_pose_raw	(266,)
+        # global_rot	(3,)
+        # body_pose_params	(133,) # NOTE: final 3 dimensions are ignored
+        # hand_pose_params	(108,)
+        # scale_params	(28,)
+        # shape_params	(45,)
+        # expr_params	(72,)
+        # mask	None
+        # pred_joint_coords	(127, 3)
+        # pred_global_rots	(127, 3, 3)
+        # lhand_bbox	(4,)
+        # rhand_bbox	(4,)
         return add_vertices_alias(outputs)
 
     # Case 2: numpy frame (assumed RGB)
@@ -488,8 +507,8 @@ def process_one_input(estimator, image_or_path, bbox_thr, use_mask, tmp_dir=None
         os.makedirs(tmp_dir, exist_ok=True)
 
         # estimator wants a file path -> write temp image (BGR for cv2.imwrite)
-        frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
-        tmp_path = os.path.join(tmp_dir, f"frame_{frame_idx:06d}.jpg")
+        frame_bgr   = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
+        tmp_path    = os.path.join(tmp_dir, f"frame_{frame_idx:06d}.jpg")
         cv2.imwrite(tmp_path, frame_bgr)
 
         outputs = estimator.process_one_image(tmp_path, bbox_thr=bbox_thr, use_mask=use_mask)
@@ -520,7 +539,7 @@ def run_on_image_folder(args, estimator, output_folder):
         H, W = img_bgr.shape[0], img_bgr.shape[1]
         outputs = select_center_person(outputs, img_w=W, img_h=H, enabled=args.center_person_only)
 
-        rend = visualize_sample_together(img_bgr, outputs, estimator.faces)
+        rend = visualize_sample_together(img_bgr, outputs, estimator.faces, render_only=args.render_only)
         rend = np.ascontiguousarray(_to_uint8(rend))
 
         # If visualize returns RGB, convert to BGR before saving
@@ -661,7 +680,7 @@ def run_on_video(args, estimator, output_folder):
                 kept_t += 1
 
             # visualize on RGB frame
-            rend = visualize_sample_together(frame_rgb, outputs, estimator.faces)
+            rend = visualize_sample_together(frame_rgb, outputs, estimator.faces, render_only=args.render_only)
             rend = np.ascontiguousarray(_to_uint8(rend))
 
             if rend.ndim != 3 or rend.shape[2] != 3:
@@ -835,7 +854,7 @@ def run_on_video_timestamps(args, estimator, output_folder):
         cv2.imwrite(base + "_input.jpg", cv2.cvtColor(_to_uint8(frame_rgb), cv2.COLOR_RGB2BGR))
 
         # 2) rendered visualization
-        rend = visualize_sample_together(frame_rgb, outputs, estimator.faces)
+        rend = visualize_sample_together(frame_rgb, outputs, estimator.faces, render_only=args.render_only)
         rend = np.ascontiguousarray(_to_uint8(rend))
 
         if not args.vis_returns_bgr:
@@ -1004,6 +1023,12 @@ Examples:
         action="store_true",
         default=False,
         help="Set this if visualize_sample_together returns BGR already (then no RGB->BGR conversion is applied).",
+    )
+    parser.add_argument(
+        "--render_only",
+        action="store_true",
+        default=False,
+        help="Save only the front-view mesh render (3rd panel) instead of the full 4-panel visualization.",
     )
     parser.add_argument("--print_debug", action="store_true", default=False, help="Print codec/size debug info on first frame")
 

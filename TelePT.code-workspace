@@ -7,7 +7,7 @@
 			"path": "../MHR"
 		},
 		{
-			"path": "../datasets/mocap"
+			"path": "../datasets/telept"
 		}
 	],
 	"settings": {}
