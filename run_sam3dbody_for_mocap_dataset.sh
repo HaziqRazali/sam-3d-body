@@ -2,6 +2,16 @@
 set -euo pipefail
 shopt -s nullglob
 
+#CUDA_VISIBLE_DEVICES=0 FORCE=0 TEST_MODE=1 ./run_sam3dbody_for_mocap_dataset.sh --DATA_ROOT /home/haziq/datasets/mocap/data/laptop_webcam/
+
+#CUDA_VISIBLE_DEVICES=0 FORCE=0 TEST_MODE=0 ./run_sam3dbody_for_mocap_dataset.sh --DATA_ROOT /home/haziq/datasets/mocap/data/basler_2026_03_20/ --shard 0 --num_shards 3 2>&1 | tee basler_2026_03_20_shard0_part0.txt
+#CUDA_VISIBLE_DEVICES=1 FORCE=0 TEST_MODE=0 ./run_sam3dbody_for_mocap_dataset.sh --DATA_ROOT /home/haziq/datasets/mocap/data/basler_2026_03_20/ --shard 1 --num_shards 3 2>&1 | tee basler_2026_03_20_shard1_part0.txt
+#CUDA_VISIBLE_DEVICES=2 FORCE=0 TEST_MODE=0 ./run_sam3dbody_for_mocap_dataset.sh --DATA_ROOT /home/haziq/datasets/mocap/data/basler_2026_03_20/ --shard 2 --num_shards 3 2>&1 | tee basler_2026_03_20_shard2_part0.txt
+
+#CUDA_VISIBLE_DEVICES=0 FORCE=0 TEST_MODE=0 ./run_sam3dbody_for_mocap_dataset.sh --DATA_ROOT /home/haziq/datasets/mocap/data/basler_2026_03_21/ --shard 0 --num_shards 3 2>&1 | tee basler_2026_03_21_shard0_part0.txt
+#CUDA_VISIBLE_DEVICES=1 FORCE=0 TEST_MODE=0 ./run_sam3dbody_for_mocap_dataset.sh --DATA_ROOT /home/haziq/datasets/mocap/data/basler_2026_03_21/ --shard 1 --num_shards 3 2>&1 | tee basler_2026_03_21_shard1_part0.txt
+#CUDA_VISIBLE_DEVICES=2 FORCE=0 TEST_MODE=0 ./run_sam3dbody_for_mocap_dataset.sh --DATA_ROOT /home/haziq/datasets/mocap/data/basler_2026_03_21/ --shard 2 --num_shards 3 2>&1 | tee basler_2026_03_21_shard2_part0.txt
+
 # Qianli 
 # CUDA_VISIBLE_DEVICES=0 FORCE=1 TEST_MODE=0 ./run_sam3dbody_for_mocap_dataset.sh --DATA_ROOT /home/haziq/datasets/mocap/data/fit3d/ --shard 0 --num_shards 4 --ignore-cams "50591643,58860488" 2>&1 | tee fit3d_shard0_part0.txt
 # CUDA_VISIBLE_DEVICES=1 FORCE=1 TEST_MODE=0 ./run_sam3dbody_for_mocap_dataset.sh --DATA_ROOT /home/haziq/datasets/mocap/data/fit3d/ --shard 1 --num_shards 4 --ignore-cams "50591643,58860488" 2>&1 | tee fit3d_shard1_part0.txt
@@ -97,7 +107,7 @@ for idx in "${!VIDS[@]}"; do
   base="$(basename "$vid")"
   base="${base%.*}"  # strip extension
 
-  out_dir="$DATA_ROOT/$split/$seq/mhr/$cam"
+  out_dir="$DATA_ROOT/$split/$seq/sam3d/$cam"
   out_npz="$out_dir/${base}_mhr_outputs.npz"
 
   echo "================================================"

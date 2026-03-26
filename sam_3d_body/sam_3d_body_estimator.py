@@ -94,7 +94,12 @@ class SAM3DBodyEstimator:
         self.image_embeddings = None
         self.output = None
         self.prev_prompt = []
-        torch.cuda.empty_cache()
+        # NOTE: do NOT call torch.cuda.empty_cache() here.
+        # Calling it every frame returns blocks to the CUDA driver, which
+        # causes driver-level fragmentation over hundreds of frames.
+        # PyTorch's caching allocator reuses blocks between frames efficiently
+        # on its own; forcing a full cache flush each frame bypasses that and
+        # can cause CUDA VMM page-mapping failures that manifest as SIGBUS.
 
         if type(img) == str:
             img = load_image(img, backend="cv2", image_format="bgr")

@@ -618,7 +618,10 @@ def run_on_video(args, estimator, output_folder):
                 if save_video_npz:
                     if n_frames is None or n_frames <= 0:
                         raise RuntimeError("Video frame count unknown; cannot allocate whole-video NPZ buffers.")
-                    n_kept_frames = (n_frames + args.stride - 1) // args.stride
+                    # Add a 5% + 32-frame buffer because CAP_PROP_FRAME_COUNT reads
+                    # container metadata which can underestimate the true frame count,
+                    # causing a SIGBUS when kept_t writes past the mmap boundary.
+                    n_kept_frames = int((n_frames + args.stride - 1) // args.stride * 1.05) + 32
                     memmaps = init_video_memmaps(memmaps_dir, n_kept_frames)
 
             if idx % args.stride != 0:
@@ -626,6 +629,11 @@ def run_on_video(args, estimator, output_folder):
                 continue
 
             frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+
+            # Periodically flush CUDA allocator cache to bound VRAM growth without
+            # the per-frame fragmentation that empty_cache() in the estimator caused.
+            if kept_t > 0 and kept_t % 200 == 0:
+                torch.cuda.empty_cache()
 
             # goes into 
             # /home/haziq/sam-3d-body/demo.py process_one_input()
