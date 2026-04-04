@@ -597,9 +597,10 @@ def run_on_video(args, estimator, output_folder):
     out_size = None  # (out_w, out_h)
     out_fps = None
 
-    # Whole-video npz saving (memmap-backed)
-    memmaps = None
-    memmaps_dir = os.path.join(output_folder, "video_npz_tmp")
+    # Whole-video npz saving (memmap-backed), one set per person
+    num_persons = args.num_persons
+    memmaps_list = [None] * num_persons
+    memmaps_dirs = [os.path.join(output_folder, f"video_npz_tmp_p{i}") for i in range(num_persons)]
     kept_t = 0
     n_kept_frames = None
     n_frames_seen = None
@@ -622,7 +623,8 @@ def run_on_video(args, estimator, output_folder):
                     # container metadata which can underestimate the true frame count,
                     # causing a SIGBUS when kept_t writes past the mmap boundary.
                     n_kept_frames = int((n_frames + args.stride - 1) // args.stride * 1.05) + 32
-                    memmaps = init_video_memmaps(memmaps_dir, n_kept_frames)
+                    for _pi in range(num_persons):
+                        memmaps_list[_pi] = init_video_memmaps(memmaps_dirs[_pi], n_kept_frames)
 
             if idx % args.stride != 0:
                 pbar.update(1)
@@ -650,42 +652,41 @@ def run_on_video(args, estimator, output_folder):
             # NEW: if multiple persons, keep only center person
             outputs = select_center_person(outputs, img_w=w, img_h=h, enabled=args.center_person_only)
 
-            # write model outputs into memmaps (one row per kept frame)
-            if memmaps is not None:
-                # If no detection / no person -> fill NaNs and move on
-                if (not isinstance(outputs, (list, tuple))) or (len(outputs) == 0) or (not isinstance(outputs[0], dict)):
+            # write model outputs into memmaps (one row per kept frame, one set per person)
+            if memmaps_list[0] is not None:
+                no_detection = (
+                    not isinstance(outputs, (list, tuple))
+                    or len(outputs) == 0
+                    or not isinstance(outputs[0], dict)
+                )
+                if no_detection:
                     print(f"Frame {kept_t} has NaNs")
-                    fill_row_with_nan(memmaps, kept_t, idx)
-                    kept_t += 1
-                    # optionally log once in awhile
-                    # print(f"[WARN] No person at frame {idx}, wrote NaNs")
-                    continue
-
-                person0 = outputs[0]
-
-                memmaps["vertices"][kept_t]             = person0["pred_vertices"].astype(np.float32, copy=False)
-                memmaps["pred_pose_raw"][kept_t]        = person0["pred_pose_raw"].astype(np.float32, copy=False)
-                memmaps["pred_cam_t"][kept_t]           = person0["pred_cam_t"].astype(np.float32, copy=False)
-                memmaps["pred_joint_coords"][kept_t]    = person0["pred_joint_coords"].astype(np.float32, copy=False)
-                memmaps["pred_keypoints_3d"][kept_t]    = person0["pred_keypoints_3d"].astype(np.float32, copy=False)
-                memmaps["pred_keypoints_2d"][kept_t]    = person0["pred_keypoints_2d"].astype(np.float32, copy=False)
-                memmaps["bbox"][kept_t]                 = person0["bbox"].astype(np.float32, copy=False)
-                memmaps["focal_length"][kept_t]         = np.float32(person0["focal_length"])
-
-                memmaps["global_rot"][kept_t]           = person0["global_rot"].astype(np.float32, copy=False)
-                memmaps["body_pose_params"][kept_t]     = person0["body_pose_params"].astype(np.float32, copy=False)
-                memmaps["hand_pose_params"][kept_t]     = person0["hand_pose_params"].astype(np.float32, copy=False)
-                memmaps["scale_params"][kept_t]         = person0["scale_params"].astype(np.float32, copy=False)
-                memmaps["shape_params"][kept_t]         = person0["shape_params"].astype(np.float32, copy=False)
-                memmaps["expr_params"][kept_t]          = person0["expr_params"].astype(np.float32, copy=False)
-                memmaps["pred_global_rots"][kept_t]     = person0["pred_global_rots"].astype(np.float32, copy=False)
-
-                # hand bbox may still be None; keep it minimal but safe
-                memmaps["lhand_bbox"][kept_t] = np.asarray(person0.get("lhand_bbox", [np.nan]*4), dtype=np.float32).reshape(4)
-                memmaps["rhand_bbox"][kept_t] = np.asarray(person0.get("rhand_bbox", [np.nan]*4), dtype=np.float32).reshape(4)
-
-                memmaps["frame_indices"][kept_t] = np.int32(idx)
+                for _pi, _mm in enumerate(memmaps_list):
+                    if no_detection or _pi >= len(outputs):
+                        fill_row_with_nan(_mm, kept_t, idx)
+                    else:
+                        _p = outputs[_pi]
+                        _mm["vertices"][kept_t]          = _p["pred_vertices"].astype(np.float32, copy=False)
+                        _mm["pred_pose_raw"][kept_t]     = _p["pred_pose_raw"].astype(np.float32, copy=False)
+                        _mm["pred_cam_t"][kept_t]        = _p["pred_cam_t"].astype(np.float32, copy=False)
+                        _mm["pred_joint_coords"][kept_t] = _p["pred_joint_coords"].astype(np.float32, copy=False)
+                        _mm["pred_keypoints_3d"][kept_t] = _p["pred_keypoints_3d"].astype(np.float32, copy=False)
+                        _mm["pred_keypoints_2d"][kept_t] = _p["pred_keypoints_2d"].astype(np.float32, copy=False)
+                        _mm["bbox"][kept_t]              = _p["bbox"].astype(np.float32, copy=False)
+                        _mm["focal_length"][kept_t]      = np.float32(_p["focal_length"])
+                        _mm["global_rot"][kept_t]        = _p["global_rot"].astype(np.float32, copy=False)
+                        _mm["body_pose_params"][kept_t]  = _p["body_pose_params"].astype(np.float32, copy=False)
+                        _mm["hand_pose_params"][kept_t]  = _p["hand_pose_params"].astype(np.float32, copy=False)
+                        _mm["scale_params"][kept_t]      = _p["scale_params"].astype(np.float32, copy=False)
+                        _mm["shape_params"][kept_t]      = _p["shape_params"].astype(np.float32, copy=False)
+                        _mm["expr_params"][kept_t]       = _p["expr_params"].astype(np.float32, copy=False)
+                        _mm["pred_global_rots"][kept_t]  = _p["pred_global_rots"].astype(np.float32, copy=False)
+                        _mm["lhand_bbox"][kept_t]        = np.asarray(_p.get("lhand_bbox", [np.nan]*4), dtype=np.float32).reshape(4)
+                        _mm["rhand_bbox"][kept_t]        = np.asarray(_p.get("rhand_bbox", [np.nan]*4), dtype=np.float32).reshape(4)
+                        _mm["frame_indices"][kept_t]     = np.int32(idx)
                 kept_t += 1
+                if no_detection:
+                    continue
 
             # visualize on RGB frame
             rend = visualize_sample_together(frame_rgb, outputs, estimator.faces, render_only=args.render_only)
@@ -741,20 +742,11 @@ def run_on_video(args, estimator, output_folder):
         if writer is not None:
             writer.release()
 
-    # finalize one single NPZ per video
-    if memmaps is not None:
+    # finalize one NPZ per person
+    if memmaps_list[0] is not None:
         T = kept_t
 
-        # name
-        video_npz_name = args.video_npz_name.strip() if args.video_npz_name else ""
-        if video_npz_name == "":
-            video_npz_name = f"{video_base}_mhr_outputs.npz"
-        if not video_npz_name.endswith(".npz"):
-            video_npz_name += ".npz"
-
-        out_npz_path = os.path.join(output_folder, video_npz_name)
-
-        meta = {
+        meta_base = {
             "mode": "video_full",
             "video_path": args.video_path,
             "fps": float(out_fps if out_fps is not None else 0.0),
@@ -764,40 +756,55 @@ def run_on_video(args, estimator, output_folder):
             "num_frames_total": int(n_frames_seen) if n_frames_seen is not None else -1,
             "num_frames_saved": int(T),
             "center_person_only": bool(args.center_person_only),
+            "num_persons": num_persons,
         }
 
-        for mm in memmaps.values():
-            mm.flush()
+        for _pi, _mm in enumerate(memmaps_list):
+            if num_persons == 1:
+                video_npz_name = args.video_npz_name.strip() if args.video_npz_name else ""
+                if video_npz_name == "":
+                    video_npz_name = f"{video_base}_mhr_outputs.npz"
+                if not video_npz_name.endswith(".npz"):
+                    video_npz_name += ".npz"
+            else:
+                video_npz_name = f"{video_base}_mhr_outputs_p{_pi}.npz"
 
-        np.savez_compressed(
-            out_npz_path,
-            vertices=memmaps["vertices"][:T],
-            pred_pose_raw=memmaps["pred_pose_raw"][:T],
-            pred_cam_t=memmaps["pred_cam_t"][:T],
-            pred_joint_coords=memmaps["pred_joint_coords"][:T],
-            pred_keypoints_3d=memmaps["pred_keypoints_3d"][:T],
-            pred_keypoints_2d=memmaps["pred_keypoints_2d"][:T],
-            bbox=memmaps["bbox"][:T],
-            focal_length=memmaps["focal_length"][:T],
-            global_rot=memmaps["global_rot"][:T],
-            body_pose_params=memmaps["body_pose_params"][:T],
-            hand_pose_params=memmaps["hand_pose_params"][:T],
-            scale_params=memmaps["scale_params"][:T],
-            shape_params=memmaps["shape_params"][:T],
-            expr_params=memmaps["expr_params"][:T],
-            pred_global_rots=memmaps["pred_global_rots"][:T],
-            lhand_bbox=memmaps["lhand_bbox"][:T],
-            rhand_bbox=memmaps["rhand_bbox"][:T],
-            frame_indices=memmaps["frame_indices"][:T],
-            meta=np.array([meta], dtype=object),
-        )
+            out_npz_path = os.path.join(output_folder, video_npz_name)
+            meta = {**meta_base, "person_idx": _pi}
 
-        if not args.keep_video_npz_tmp:
-            cleanup_video_memmaps(memmaps_dir)
-            try:
-                os.rmdir(memmaps_dir)
-            except OSError:
-                pass
+            for mm in _mm.values():
+                mm.flush()
+
+            np.savez_compressed(
+                out_npz_path,
+                vertices=_mm["vertices"][:T],
+                pred_pose_raw=_mm["pred_pose_raw"][:T],
+                pred_cam_t=_mm["pred_cam_t"][:T],
+                pred_joint_coords=_mm["pred_joint_coords"][:T],
+                pred_keypoints_3d=_mm["pred_keypoints_3d"][:T],
+                pred_keypoints_2d=_mm["pred_keypoints_2d"][:T],
+                bbox=_mm["bbox"][:T],
+                focal_length=_mm["focal_length"][:T],
+                global_rot=_mm["global_rot"][:T],
+                body_pose_params=_mm["body_pose_params"][:T],
+                hand_pose_params=_mm["hand_pose_params"][:T],
+                scale_params=_mm["scale_params"][:T],
+                shape_params=_mm["shape_params"][:T],
+                expr_params=_mm["expr_params"][:T],
+                pred_global_rots=_mm["pred_global_rots"][:T],
+                lhand_bbox=_mm["lhand_bbox"][:T],
+                rhand_bbox=_mm["rhand_bbox"][:T],
+                frame_indices=_mm["frame_indices"][:T],
+                meta=np.array([meta], dtype=object),
+            )
+            print(f"[NPZ] person {_pi}: {out_npz_path}")
+
+            if not args.keep_video_npz_tmp:
+                cleanup_video_memmaps(memmaps_dirs[_pi])
+                try:
+                    os.rmdir(memmaps_dirs[_pi])
+                except OSError:
+                    pass
 
     if args.cleanup_tmp and os.path.isdir(tmp_dir):
         for f in glob(os.path.join(tmp_dir, "*.jpg")):
@@ -1011,6 +1018,12 @@ Examples:
         action="store_true",
         default=False,
         help="Keep temporary memmap .tmp.npy files (debug). By default they are deleted after NPZ is written.",
+    )
+    parser.add_argument(
+        "--num_persons",
+        type=int,
+        default=1,
+        help="Number of people to save NPZ data for (default: 1). Saves N separate *_mhr_outputs_pI.npz files.",
     )
 
     # Timestamp mode options
