@@ -214,7 +214,7 @@ class MHRHead(nn.Module):
         # Now, figure out the pose.
         ## 10 here is because it's more stable to optimize global translation in meters.
         full_pose_params = torch.cat(
-            [global_trans * 10, global_rot, body_pose_params], dim=1
+            [global_trans * 10, global_rot, body_pose_params], dim=1 # 3 + 3 + 130 = 136
         )  # B x 127
         ## Put in hands
         if hand_pose_params is not None:
@@ -225,7 +225,7 @@ class MHRHead(nn.Module):
 
         # full_pose_params = [global_trans (3), global_rot (3), body_pose_params (:130)]
         # print(scales.shape) # [1, 68]
-        model_params = torch.cat([full_pose_params, scales], dim=1)
+        model_params = torch.cat([full_pose_params, scales], dim=1) # [1, 204]
 
         if self.enable_hand_model:
             # Zero out non-hand parameters
