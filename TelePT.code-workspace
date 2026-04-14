@@ -8,6 +8,9 @@
 		},
 		{
 			"path": "../../../data/telept"
+		},
+		{
+			"path": "../datasets/mocap"
 		}
 	],
 	"settings": {}
