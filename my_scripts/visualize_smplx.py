@@ -72,12 +72,18 @@ def _make_raymond_light_nodes():
 
 def rotmat_to_aa(rotmat: np.ndarray) -> np.ndarray:
     shape = rotmat.shape[:-2]
-    aa = Rot.from_matrix(rotmat.reshape(-1, 3, 3)).as_rotvec()
+    mats = rotmat.reshape(-1, 3, 3).copy()
+    # Replace NaN/Inf with identity so SVD doesn't crash; callers skip these frames
+    bad = ~np.isfinite(mats).all(axis=(-2, -1))
+    if bad.any():
+        mats[bad] = np.eye(3, dtype=mats.dtype)
+    aa = Rot.from_matrix(mats).as_rotvec()
     return aa.reshape(*shape, 3)
 
 
 def find_smplx_path():
     candidates = [
+        "/data/haziq/mocap/data/models_smplx_v1_1/models/smplx",
         os.path.expanduser("~/datasets/mocap/data/models_smplx_v1_1/models/smplx"),
         os.path.expanduser("/media/haziq/Haziq/mocap/data/models_smplx_v1_1/models/smplx"),
     ]
@@ -186,6 +192,11 @@ def main():
         T_all.append(T)
         print(f"[INFO] Person {pi}: {T} frames in JSON")
 
+        # Per-frame NaN mask — True means this frame has no valid pose data
+        nan_frame_mask = ~np.isfinite(global_orient_R.reshape(T, 9)).all(axis=-1)  # [T]
+        if nan_frame_mask.any():
+            print(f"[INFO] Person {pi}: {nan_frame_mask.sum()} NaN frames will be skipped (overlay omitted)")
+
         global_orient_aa = rotmat_to_aa(global_orient_R.reshape(T, 3, 3))
         body_pose_aa     = rotmat_to_aa(body_pose_R.reshape(T, 21, 3, 3))
         lhand_aa         = rotmat_to_aa(lhand_R.reshape(T, 15, 3, 3))
@@ -212,6 +223,7 @@ def main():
             "expr_all":         expr_all,
             "pred_cam_t_all":   pred_cam_t_all,
             "focal_length_all": focal_length_all,
+            "nan_frame_mask":   nan_frame_mask,
             "T":                T,
         })
 
@@ -270,9 +282,27 @@ def main():
         frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
 
         for pi, p in enumerate(persons):
+            # skip frames with no valid pose data (NaN rotation matrices)
+            if p["nan_frame_mask"][frame_idx]:
+                continue
+
+            # transl from the JSON is in world space (≈ pred_cam_t).
+            # The renderer expects the mesh in camera-relative space (pelvis ≈
+            # origin), with the camera placed at pred_cam_t — same convention
+            # as demo.py's Renderer.  Subtracting pred_cam_t converts world
+            # space → camera-relative space.
+            cam_t        = p["pred_cam_t_all"][frame_idx]
+            focal_length = float(p["focal_length_all"][frame_idx])
+
+            # skip NaN frames (person not detected at this frame)
+            if np.isnan(cam_t).any() or np.isnan(focal_length):
+                continue
+
+            transl_cam = p["transl_all"][frame_idx] - cam_t  # world → cam-relative
+
             with torch.no_grad():
                 out = smplx_model(
-                    transl          = torch.tensor(p["transl_all"][frame_idx:frame_idx+1],                    dtype=torch.float32),
+                    transl          = torch.tensor(transl_cam[None],                                         dtype=torch.float32),
                     global_orient   = torch.tensor(p["global_orient_aa"][frame_idx:frame_idx+1],             dtype=torch.float32),
                     body_pose       = torch.tensor(p["body_pose_aa"][frame_idx:frame_idx+1].reshape(1, 63),  dtype=torch.float32),
                     betas           = torch.tensor(p["betas_all"][frame_idx:frame_idx+1],                    dtype=torch.float32),
@@ -284,13 +314,7 @@ def main():
                     expression      = torch.tensor(p["expr_all"][frame_idx:frame_idx+1],                     dtype=torch.float32),
                 )
 
-            verts        = out.vertices[0].numpy()
-            cam_t        = p["pred_cam_t_all"][frame_idx]
-            focal_length = float(p["focal_length_all"][frame_idx])
-
-            # skip NaN frames (person not detected at this frame)
-            if np.isnan(cam_t).any() or np.isnan(focal_length):
-                continue
+            verts = out.vertices[0].numpy()
 
             frame_rgb = render_on_image(renderer, frame_rgb, verts, faces, cam_t, focal_length)
 
