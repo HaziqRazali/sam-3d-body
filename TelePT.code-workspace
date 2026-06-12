@@ -11,6 +11,12 @@
 		},
 		{
 			"path": "../datasets/mocap"
+		},
+		{
+			"path": "../Fast-SAM-3D-Body"
+		},
+		{
+			"path": "../code/AddBiomechanics"
 		}
 	],
 	"settings": {}
