@@ -72,12 +72,18 @@ def _make_raymond_light_nodes():
 
 def rotmat_to_aa(rotmat: np.ndarray) -> np.ndarray:
     shape = rotmat.shape[:-2]
-    aa = Rot.from_matrix(rotmat.reshape(-1, 3, 3)).as_rotvec()
+    mats = rotmat.reshape(-1, 3, 3).copy()
+    # Replace NaN/Inf with identity so SVD doesn't crash; callers skip these frames
+    bad = ~np.isfinite(mats).all(axis=(-2, -1))
+    if bad.any():
+        mats[bad] = np.eye(3, dtype=mats.dtype)
+    aa = Rot.from_matrix(mats).as_rotvec()
     return aa.reshape(*shape, 3)
 
 
 def find_smplx_path():
     candidates = [
+        "/data/haziq/mocap/data/models_smplx_v1_1/models/smplx",
         os.path.expanduser("~/datasets/mocap/data/models_smplx_v1_1/models/smplx"),
         os.path.expanduser("/media/haziq/Haziq/mocap/data/models_smplx_v1_1/models/smplx"),
     ]
@@ -144,10 +150,10 @@ def main():
         description="Overlay SMPL-X mesh onto original video frames."
     )
     parser.add_argument("--video_path", required=True)
-    parser.add_argument("--smplx_json", required=True,
-                        help="JSON output from mhr_to_smpl.py")
-    parser.add_argument("--mhr_npz",    required=True,
-                        help="*_mhr_outputs.npz from demo.py (provides pred_cam_t + focal_length)")
+    parser.add_argument("--smplx_json", required=True, nargs='+',
+                        help="One or more JSON outputs from mhr_to_smpl.py (one per person)")
+    parser.add_argument("--mhr_npz",    required=True, nargs='+',
+                        help="One or more *_mhr_outputs_pI.npz files from demo.py (one per person, same order as --smplx_json)")
     parser.add_argument("--out_video",  required=True)
     parser.add_argument("--smplx_path", default=find_smplx_path())
     parser.add_argument("--max_frames", type=int, default=0)
@@ -156,45 +162,75 @@ def main():
     if args.smplx_path is None or not os.path.isdir(args.smplx_path):
         sys.exit("[ERROR] SMPL-X model path not found. Pass --smplx_path explicitly.")
 
-    # ------------------------------------------------------------------
-    # 1) Load SMPL-X JSON
-    # ------------------------------------------------------------------
-    print(f"[INFO] Loading SMPL-X JSON: {args.smplx_json}")
-    with open(args.smplx_json) as f:
-        data = json.load(f)
+    if len(args.smplx_json) != len(args.mhr_npz):
+        sys.exit(f"[ERROR] --smplx_json ({len(args.smplx_json)}) and --mhr_npz ({len(args.mhr_npz)}) must have the same number of entries.")
 
-    transl_all      = np.array(data["transl"],          dtype=np.float32)  # [T, 3]
-    global_orient_R = np.array(data["global_orient"],   dtype=np.float32)
-    body_pose_R     = np.array(data["body_pose"],        dtype=np.float32)
-    betas_all       = np.array(data["betas"],            dtype=np.float32)
-    lhand_R         = np.array(data["left_hand_pose"],   dtype=np.float32)
-    rhand_R         = np.array(data["right_hand_pose"],  dtype=np.float32)
-    jaw_R           = np.array(data["jaw_pose"],         dtype=np.float32)
-    leye_R          = np.array(data["leye_pose"],        dtype=np.float32)
-    reye_R          = np.array(data["reye_pose"],        dtype=np.float32)
-    expr_all        = np.array(data["expression"],       dtype=np.float32)
-
-    T = transl_all.shape[0]
-    print(f"[INFO] Total frames in JSON: {T}")
-
-    global_orient_aa = rotmat_to_aa(global_orient_R.reshape(T, 3, 3))
-    body_pose_aa     = rotmat_to_aa(body_pose_R.reshape(T, 21, 3, 3))
-    lhand_aa         = rotmat_to_aa(lhand_R.reshape(T, 15, 3, 3))
-    rhand_aa         = rotmat_to_aa(rhand_R.reshape(T, 15, 3, 3))
-    jaw_aa           = rotmat_to_aa(jaw_R.reshape(T, 3, 3))
-    leye_aa          = rotmat_to_aa(leye_R.reshape(T, 3, 3))
-    reye_aa          = rotmat_to_aa(reye_R.reshape(T, 3, 3))
+    num_persons = len(args.smplx_json)
 
     # ------------------------------------------------------------------
-    # 2) Load pred_cam_t and focal_length from the original npz
+    # 1) Load SMPL-X JSON + camera params for all persons
     # ------------------------------------------------------------------
-    print(f"[INFO] Loading camera params from: {args.mhr_npz}")
-    npz = np.load(args.mhr_npz, allow_pickle=True)
-    pred_cam_t_all   = npz["pred_cam_t"].astype(np.float32)    # [T, 3]
-    focal_length_all = npz["focal_length"].astype(np.float32)  # [T]
+    persons = []
+    T_all = []
+    for pi in range(num_persons):
+        print(f"[INFO] Loading person {pi} SMPL-X JSON: {args.smplx_json[pi]}")
+        with open(args.smplx_json[pi]) as f:
+            data = json.load(f)
+
+        transl_all      = np.array(data["transl"],          dtype=np.float32)
+        global_orient_R = np.array(data["global_orient"],   dtype=np.float32)
+        body_pose_R     = np.array(data["body_pose"],        dtype=np.float32)
+        betas_all       = np.array(data["betas"],            dtype=np.float32)
+        lhand_R         = np.array(data["left_hand_pose"],   dtype=np.float32)
+        rhand_R         = np.array(data["right_hand_pose"],  dtype=np.float32)
+        jaw_R           = np.array(data["jaw_pose"],         dtype=np.float32)
+        leye_R          = np.array(data["leye_pose"],        dtype=np.float32)
+        reye_R          = np.array(data["reye_pose"],        dtype=np.float32)
+        expr_all        = np.array(data["expression"],       dtype=np.float32)
+
+        T = transl_all.shape[0]
+        T_all.append(T)
+        print(f"[INFO] Person {pi}: {T} frames in JSON")
+
+        # Per-frame NaN mask — True means this frame has no valid pose data
+        nan_frame_mask = ~np.isfinite(global_orient_R.reshape(T, 9)).all(axis=-1)  # [T]
+        if nan_frame_mask.any():
+            print(f"[INFO] Person {pi}: {nan_frame_mask.sum()} NaN frames will be skipped (overlay omitted)")
+
+        global_orient_aa = rotmat_to_aa(global_orient_R.reshape(T, 3, 3))
+        body_pose_aa     = rotmat_to_aa(body_pose_R.reshape(T, 21, 3, 3))
+        lhand_aa         = rotmat_to_aa(lhand_R.reshape(T, 15, 3, 3))
+        rhand_aa         = rotmat_to_aa(rhand_R.reshape(T, 15, 3, 3))
+        jaw_aa           = rotmat_to_aa(jaw_R.reshape(T, 3, 3))
+        leye_aa          = rotmat_to_aa(leye_R.reshape(T, 3, 3))
+        reye_aa          = rotmat_to_aa(reye_R.reshape(T, 3, 3))
+
+        print(f"[INFO] Loading person {pi} camera params from: {args.mhr_npz[pi]}")
+        npz = np.load(args.mhr_npz[pi], allow_pickle=True)
+        pred_cam_t_all   = npz["pred_cam_t"].astype(np.float32)
+        focal_length_all = npz["focal_length"].astype(np.float32)
+
+        persons.append({
+            "transl_all":       transl_all,
+            "global_orient_aa": global_orient_aa,
+            "body_pose_aa":     body_pose_aa,
+            "betas_all":        betas_all,
+            "lhand_aa":         lhand_aa,
+            "rhand_aa":         rhand_aa,
+            "jaw_aa":           jaw_aa,
+            "leye_aa":          leye_aa,
+            "reye_aa":          reye_aa,
+            "expr_all":         expr_all,
+            "pred_cam_t_all":   pred_cam_t_all,
+            "focal_length_all": focal_length_all,
+            "nan_frame_mask":   nan_frame_mask,
+            "T":                T,
+        })
+
+    T = min(T_all)
 
     # ------------------------------------------------------------------
-    # 3) SMPL-X model  (transl=zeros — body centred at pelvis; we use pred_cam_t)
+    # 2) SMPL-X model (shared across persons)
     # ------------------------------------------------------------------
     device = torch.device("cpu")
     smplx_model = smplx.SMPLX(
@@ -207,7 +243,7 @@ def main():
     faces = np.asarray(smplx_model.faces, dtype=np.int32)
 
     # ------------------------------------------------------------------
-    # 4) Open video
+    # 3) Open video
     # ------------------------------------------------------------------
     cap = cv2.VideoCapture(args.video_path)
     if not cap.isOpened():
@@ -222,12 +258,12 @@ def main():
     if args.max_frames > 0:
         n_frames = min(n_frames, args.max_frames)
 
-    print(f"[INFO] Video: {vid_W}x{vid_H} @ {fps:.1f} fps  |  processing {n_frames} frames")
+    print(f"[INFO] Video: {vid_W}x{vid_H} @ {fps:.1f} fps  |  {num_persons} person(s)  |  processing {n_frames} frames")
 
     os.makedirs(os.path.dirname(os.path.abspath(args.out_video)), exist_ok=True)
     writer = cv2.VideoWriter(
         args.out_video,
-        cv2.VideoWriter_fourcc(*"mp4v"),
+        cv2.VideoWriter_fourcc(*"MJPG"),
         fps,
         (vid_W, vid_H),
     )
@@ -235,7 +271,7 @@ def main():
     renderer = pyrender.OffscreenRenderer(viewport_width=vid_W, viewport_height=vid_H)
 
     # ------------------------------------------------------------------
-    # 5) Per-frame loop
+    # 4) Per-frame loop — render each person sequentially onto the frame
     # ------------------------------------------------------------------
     for frame_idx in range(n_frames):
         ret, frame_bgr = cap.read()
@@ -243,31 +279,47 @@ def main():
             print(f"[WARN] Video ended early at frame {frame_idx}")
             break
 
-        with torch.no_grad():
-            out = smplx_model(
-                transl          = torch.tensor(transl_all[frame_idx:frame_idx+1], dtype=torch.float32),
-                global_orient   = torch.tensor(global_orient_aa[frame_idx:frame_idx+1], dtype=torch.float32),
-                body_pose       = torch.tensor(body_pose_aa[frame_idx:frame_idx+1].reshape(1, 63), dtype=torch.float32),
-                betas           = torch.tensor(betas_all[frame_idx:frame_idx+1], dtype=torch.float32),
-                left_hand_pose  = torch.tensor(lhand_aa[frame_idx:frame_idx+1].reshape(1, 45), dtype=torch.float32),
-                right_hand_pose = torch.tensor(rhand_aa[frame_idx:frame_idx+1].reshape(1, 45), dtype=torch.float32),
-                jaw_pose        = torch.tensor(jaw_aa[frame_idx:frame_idx+1], dtype=torch.float32),
-                leye_pose       = torch.tensor(leye_aa[frame_idx:frame_idx+1], dtype=torch.float32),
-                reye_pose       = torch.tensor(reye_aa[frame_idx:frame_idx+1], dtype=torch.float32),
-                expression      = torch.tensor(expr_all[frame_idx:frame_idx+1], dtype=torch.float32),
-            )
+        frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
 
-        # transl in the JSON is already in metres (the converter stores it at
-        # the same scale as the original MHR vertices), so no rescaling needed.
-        verts = out.vertices[0].numpy()   # [V, 3]
+        for pi, p in enumerate(persons):
+            # skip frames with no valid pose data (NaN rotation matrices)
+            if p["nan_frame_mask"][frame_idx]:
+                continue
 
-        cam_t        = pred_cam_t_all[frame_idx]
-        focal_length = float(focal_length_all[frame_idx])
+            # transl from the JSON is in world space (≈ pred_cam_t).
+            # The renderer expects the mesh in camera-relative space (pelvis ≈
+            # origin), with the camera placed at pred_cam_t — same convention
+            # as demo.py's Renderer.  Subtracting pred_cam_t converts world
+            # space → camera-relative space.
+            cam_t        = p["pred_cam_t_all"][frame_idx]
+            focal_length = float(p["focal_length_all"][frame_idx])
 
-        frame_rgb  = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
-        result_rgb = render_on_image(renderer, frame_rgb, verts, faces, cam_t, focal_length)
-        result_bgr = cv2.cvtColor((result_rgb * 255).astype(np.uint8), cv2.COLOR_RGB2BGR)
+            # skip NaN frames (person not detected at this frame)
+            if np.isnan(cam_t).any() or np.isnan(focal_length):
+                continue
 
+            transl_world = p["transl_all"][frame_idx]  # world space (same coord system as cam_t)
+
+            with torch.no_grad():
+                out = smplx_model(
+                    transl          = torch.tensor(transl_world[None],                                    dtype=torch.float32),
+                    global_orient   = torch.tensor(p["global_orient_aa"][frame_idx:frame_idx+1],             dtype=torch.float32),
+                    body_pose       = torch.tensor(p["body_pose_aa"][frame_idx:frame_idx+1].reshape(1, 63),  dtype=torch.float32),
+                    betas           = torch.tensor(p["betas_all"][frame_idx:frame_idx+1],                    dtype=torch.float32),
+                    left_hand_pose  = torch.tensor(p["lhand_aa"][frame_idx:frame_idx+1].reshape(1, 45),      dtype=torch.float32),
+                    right_hand_pose = torch.tensor(p["rhand_aa"][frame_idx:frame_idx+1].reshape(1, 45),      dtype=torch.float32),
+                    jaw_pose        = torch.tensor(p["jaw_aa"][frame_idx:frame_idx+1],                       dtype=torch.float32),
+                    leye_pose       = torch.tensor(p["leye_aa"][frame_idx:frame_idx+1],                      dtype=torch.float32),
+                    reye_pose       = torch.tensor(p["reye_aa"][frame_idx:frame_idx+1],                      dtype=torch.float32),
+                    expression      = torch.tensor(p["expr_all"][frame_idx:frame_idx+1],                     dtype=torch.float32),
+                )
+
+            verts = out.vertices[0].numpy()
+
+            # Both mesh (via transl_world) and camera (cam_t) are in world space
+            frame_rgb = render_on_image(renderer, frame_rgb, verts, faces, cam_t, focal_length)
+
+        result_bgr = cv2.cvtColor((frame_rgb * 255).astype(np.uint8), cv2.COLOR_RGB2BGR)
         cv2.putText(result_bgr, f"{frame_idx}/{n_frames}", (10, 30),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2, cv2.LINE_AA)
         writer.write(result_bgr)

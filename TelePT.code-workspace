@@ -7,16 +7,20 @@
 			"path": "../MHR"
 		},
 		{
-			"path": "../datasets/telept"
+			"path": "../../../data/telept"
 		},
 		{
 			"path": "../datasets/mocap"
 		},
 		{
+<<<<<<< HEAD
 			"path": "../Fast-SAM-3D-Body"
 		},
 		{
 			"path": "../code/AddBiomechanics"
+=======
+			"path": "../../../data/haziq"
+>>>>>>> c62f66cf2393639191970e01912ad2dad60b72e6
 		}
 	],
 	"settings": {}
