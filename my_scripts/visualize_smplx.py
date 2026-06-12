@@ -263,7 +263,7 @@ def main():
     os.makedirs(os.path.dirname(os.path.abspath(args.out_video)), exist_ok=True)
     writer = cv2.VideoWriter(
         args.out_video,
-        cv2.VideoWriter_fourcc(*"mp4v"),
+        cv2.VideoWriter_fourcc(*"MJPG"),
         fps,
         (vid_W, vid_H),
     )
@@ -298,11 +298,11 @@ def main():
             if np.isnan(cam_t).any() or np.isnan(focal_length):
                 continue
 
-            transl_cam = p["transl_all"][frame_idx] - cam_t  # world → cam-relative
+            transl_world = p["transl_all"][frame_idx]  # world space (same coord system as cam_t)
 
             with torch.no_grad():
                 out = smplx_model(
-                    transl          = torch.tensor(transl_cam[None],                                         dtype=torch.float32),
+                    transl          = torch.tensor(transl_world[None],                                    dtype=torch.float32),
                     global_orient   = torch.tensor(p["global_orient_aa"][frame_idx:frame_idx+1],             dtype=torch.float32),
                     body_pose       = torch.tensor(p["body_pose_aa"][frame_idx:frame_idx+1].reshape(1, 63),  dtype=torch.float32),
                     betas           = torch.tensor(p["betas_all"][frame_idx:frame_idx+1],                    dtype=torch.float32),
@@ -316,6 +316,7 @@ def main():
 
             verts = out.vertices[0].numpy()
 
+            # Both mesh (via transl_world) and camera (cam_t) are in world space
             frame_rgb = render_on_image(renderer, frame_rgb, verts, faces, cam_t, focal_length)
 
         result_bgr = cv2.cvtColor((frame_rgb * 255).astype(np.uint8), cv2.COLOR_RGB2BGR)

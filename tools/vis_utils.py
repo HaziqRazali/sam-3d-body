@@ -91,6 +91,10 @@ def visualize_sample(img_cv2, outputs, faces):
     return rend_img
 
 def visualize_sample_together(img_cv2, outputs, faces, render_only=False):
+    # Handle empty outputs (no person detected)
+    if not outputs:
+        return img_cv2
+
     # Render everything together
     img_keypoints = img_cv2.copy()
     img_mesh = img_cv2.copy()
