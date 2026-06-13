@@ -2,6 +2,7 @@
 set -euo pipefail
 shopt -s nullglob
 
+#CUDA_VISIBLE_DEVICES=0 FORCE=0 TEST_MODE=1 ./run.sh --DATA_ROOT /home/haziq/datasets/mocap/data/brett/
 #CUDA_VISIBLE_DEVICES=0 FORCE=0 TEST_MODE=1 ./run.sh --DATA_ROOT /data/haziq/mocap/data/brett
 
 #CUDA_VISIBLE_DEVICES=0 FORCE=0 TEST_MODE=1 ./run.sh --DATA_ROOT /data/haziq/mocap/data/laptop_webcam --shard 0 --num_shards 3
@@ -38,7 +39,8 @@ shopt -s nullglob
 DATA_ROOT="${DATA_ROOT:-/media/haziq/Haziq/mocap/data/kit}"
 CHECKPOINT="./checkpoints/sam-3d-body-dinov3/model.ckpt"
 MHR="./checkpoints/sam-3d-body-dinov3/assets/mhr_model.pt"
-MHR_TO_SMPL_PY="/home/haziq/MHR/tools/mhr_smpl_conversion/mhr_to_smpl.py"
+MHR_CONV_DIR="/home/haziq/MHR/tools/mhr_smpl_conversion"
+MHR_TO_SMPL_PY="./mhr_to_smpl.py"
 VISUALIZE_PY="/home/haziq/sam-3d-body/my_scripts/visualize_smplx.py"
 VIDEO_CODEC="${VIDEO_CODEC:-mp4v}"
 
@@ -167,13 +169,13 @@ for idx in "${!VIDS[@]}"; do
     echo "[SKIP] SMPL-X JSON already exists (use FORCE=1 to overwrite)"
   elif [[ "$TEST_MODE" -eq 1 ]]; then
     echo "[TEST_MODE] Would run:"
-    echo "  conda run -n mhr_new python $MHR_TO_SMPL_PY \\"
+    echo "  cd $MHR_CONV_DIR && conda run -n mhr_new python $MHR_TO_SMPL_PY \\"
     echo "    --mhr_path \"$out_npz\" \\"
     echo "    --out_json \"$out_json\""
   elif [[ ! -f "$out_npz" ]]; then
     echo "[WARN] NPZ not found – skipping MHR→SMPL-X conversion"
   else
-    conda run -n mhr_new python "$MHR_TO_SMPL_PY" \
+    cd "$MHR_CONV_DIR" && conda run -n mhr_new python "$MHR_TO_SMPL_PY" \
       --mhr_path "$out_npz" \
       --out_json "$out_json"
   fi

@@ -210,6 +210,12 @@ def main():
         pred_cam_t_all   = npz["pred_cam_t"].astype(np.float32)
         focal_length_all = npz["focal_length"].astype(np.float32)
 
+        # Pre-compute MHR body center per frame from NPZ vertices.
+        # This ensures SMPL-X rendering matches demo.py's camera exactly
+        # (demo.py uses mean(MHR_verts + pred_cam_t) as camera position).
+        mhr_verts_all = npz["vertices"].astype(np.float32)  # (T, V, 3)
+        mhr_body_center_all = mhr_verts_all.mean(axis=1)     # (T, 3)
+
         persons.append({
             "transl_all":       transl_all,
             "global_orient_aa": global_orient_aa,
@@ -223,6 +229,7 @@ def main():
             "expr_all":         expr_all,
             "pred_cam_t_all":   pred_cam_t_all,
             "focal_length_all": focal_length_all,
+            "mhr_body_center_all": mhr_body_center_all,
             "nan_frame_mask":   nan_frame_mask,
             "T":                T,
         })
@@ -286,11 +293,13 @@ def main():
             if p["nan_frame_mask"][frame_idx]:
                 continue
 
-            # transl from the JSON is in world space (≈ pred_cam_t).
-            # The renderer expects the mesh in camera-relative space (pelvis ≈
-            # origin), with the camera placed at pred_cam_t — same convention
-            # as demo.py's Renderer.  Subtracting pred_cam_t converts world
-            # space → camera-relative space.
+            # Exact replica of demo.py's rendering pipeline:
+            #   world_verts = body_verts + pred_cam_t
+            #   center      = mean(world_verts)
+            #   centered    = world_verts - center
+            #   render(centered, camera=center)
+            # This is applied identically to SMPL-X so the projection
+            # math matches MHR rendering exactly.
             cam_t        = p["pred_cam_t_all"][frame_idx]
             focal_length = float(p["focal_length_all"][frame_idx])
 
@@ -298,11 +307,11 @@ def main():
             if np.isnan(cam_t).any() or np.isnan(focal_length):
                 continue
 
-            transl_world = p["transl_all"][frame_idx]  # world space (same coord system as cam_t)
+            transl_body = p["transl_all"][frame_idx]  # body-centric (≈ 0)
 
             with torch.no_grad():
                 out = smplx_model(
-                    transl          = torch.tensor(transl_world[None],                                    dtype=torch.float32),
+                    transl          = torch.tensor(transl_body[None],                                    dtype=torch.float32),
                     global_orient   = torch.tensor(p["global_orient_aa"][frame_idx:frame_idx+1],             dtype=torch.float32),
                     body_pose       = torch.tensor(p["body_pose_aa"][frame_idx:frame_idx+1].reshape(1, 63),  dtype=torch.float32),
                     betas           = torch.tensor(p["betas_all"][frame_idx:frame_idx+1],                    dtype=torch.float32),
@@ -316,8 +325,17 @@ def main():
 
             verts = out.vertices[0].numpy()
 
-            # Both mesh (via transl_world) and camera (cam_t) are in world space
-            frame_rgb = render_on_image(renderer, frame_rgb, verts, faces, cam_t, focal_length)
+            # ── Exact demo.py replication ──────────────────────────────────
+            # demo.py: world_verts = pred_vertices + pred_cam_t
+            #          center      = mean(world_verts)
+            #          centered    = world_verts - center
+            #          camera      = center
+            world_verts  = verts + cam_t
+            center       = world_verts.mean(axis=0)
+            verts_centered = world_verts - center
+            cam_t_render   = center
+
+            frame_rgb = render_on_image(renderer, frame_rgb, verts_centered, faces, cam_t_render, focal_length)
 
         result_bgr = cv2.cvtColor((frame_rgb * 255).astype(np.uint8), cv2.COLOR_RGB2BGR)
         cv2.putText(result_bgr, f"{frame_idx}/{n_frames}", (10, 30),
