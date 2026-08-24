@@ -152,8 +152,6 @@ def main():
     parser.add_argument("--video_path", required=True)
     parser.add_argument("--smplx_json", required=True, nargs='+',
                         help="One or more JSON outputs from mhr_to_smpl.py (one per person)")
-    parser.add_argument("--mhr_npz",    required=True, nargs='+',
-                        help="One or more *_mhr_outputs_pI.npz files from demo.py (one per person, same order as --smplx_json)")
     parser.add_argument("--out_video",  required=True)
     parser.add_argument("--smplx_path", default=find_smplx_path())
     parser.add_argument("--max_frames", type=int, default=0)
@@ -161,9 +159,6 @@ def main():
 
     if args.smplx_path is None or not os.path.isdir(args.smplx_path):
         sys.exit("[ERROR] SMPL-X model path not found. Pass --smplx_path explicitly.")
-
-    if len(args.smplx_json) != len(args.mhr_npz):
-        sys.exit(f"[ERROR] --smplx_json ({len(args.smplx_json)}) and --mhr_npz ({len(args.mhr_npz)}) must have the same number of entries.")
 
     num_persons = len(args.smplx_json)
 
@@ -205,10 +200,13 @@ def main():
         leye_aa          = rotmat_to_aa(leye_R.reshape(T, 3, 3))
         reye_aa          = rotmat_to_aa(reye_R.reshape(T, 3, 3))
 
-        print(f"[INFO] Loading person {pi} camera params from: {args.mhr_npz[pi]}")
-        npz = np.load(args.mhr_npz[pi], allow_pickle=True)
-        pred_cam_t_all   = npz["pred_cam_t"].astype(np.float32)
-        focal_length_all = npz["focal_length"].astype(np.float32)
+        # Camera params — must be embedded in JSON (written by mhr_to_smpl.py)
+        if data.get("pred_cam_t") is None or data.get("focal_length") is None:
+            sys.exit(f"[ERROR] JSON for person {pi} is missing pred_cam_t/focal_length. "
+                     "Re-run mhr_to_smpl.py to regenerate the JSON with embedded camera params.")
+        pred_cam_t_all   = np.array(data["pred_cam_t"],   dtype=np.float32)
+        focal_length_all = np.array(data["focal_length"], dtype=np.float32)
+        print(f"[INFO] Camera params loaded from JSON (person {pi})")
 
         persons.append({
             "transl_all":       transl_all,

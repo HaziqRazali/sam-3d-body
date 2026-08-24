@@ -74,9 +74,17 @@ def create_webdatset_shard(
             img_anno["__key__"] = get_anno_key(row)
             img_name = get_img_name(row)
             img = cv2.imread(os.path.join(img_dir, img_name))
-            img_anno["jpg"] = cv2.imencode(".jpg", img)[1].tobytes()
-            img_anno["metadata.json"] = {"width": img.shape[1], "height": img.shape[0]}
-            img_anno["annotation.pyd"] = []
+            if img is None:
+                # Image not downloaded (yet) — skip this subject entirely so we
+                # don't emit a shard entry with missing data. Allows creating
+                # WebDatasets from a partial image download.
+                img_anno = None
+            else:
+                img_anno["jpg"] = cv2.imencode(".jpg", img)[1].tobytes()
+                img_anno["metadata.json"] = {"width": img.shape[1], "height": img.shape[0]}
+                img_anno["annotation.pyd"] = []
+        if img_anno is None:
+            continue
 
         anno = {}
         anno["person_id"] = row["person_id"]

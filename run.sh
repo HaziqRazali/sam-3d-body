@@ -186,7 +186,6 @@ for idx in "${!VIDS[@]}"; do
     echo "  conda run -n sam_3d_body python $VISUALIZE_PY \\"
     echo "    --video_path \"$vid\" \\"
     echo "    --smplx_json \"$out_json\" \\"
-    echo "    --mhr_npz    \"$out_npz\" \\"
     echo "    --out_video  \"$out_vis\""
   elif [[ ! -f "$out_json" ]]; then
     echo "[WARN] SMPL-X JSON not found – skipping visualization"
@@ -194,7 +193,6 @@ for idx in "${!VIDS[@]}"; do
     conda run -n sam_3d_body python "$VISUALIZE_PY" \
       --video_path "$vid" \
       --smplx_json "$out_json" \
-      --mhr_npz    "$out_npz" \
       --out_video  "$out_vis"
   fi
 done

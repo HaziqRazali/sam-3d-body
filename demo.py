@@ -589,7 +589,14 @@ def run_on_video(args, estimator, output_folder):
     video_base = os.path.splitext(os.path.basename(args.video_path))[0]
     out_video_path = os.path.join(output_folder, f"{video_base}_rendered.mp4")
 
-    tmp_dir = os.path.join(output_folder, "_tmp_frames_for_inference")
+    # Per-video temp dirs.  output_folder is the camera dir (sam3d/<cam>), which is
+    # SHARED by concurrent shard processes: with --shard/--num_shards, different
+    # videos of the same camera are processed in parallel and all write into the
+    # same output_folder.  A fixed tmp name would let two processes clobber each
+    # other's memmaps (mode="w+" truncates!) and temp frames, silently saving the
+    # WRONG video's data into the final *_mhr_outputs.npz.  Names are unique per
+    # video_base so parallel shards can never collide.
+    tmp_dir = os.path.join(output_folder, f"_tmp_frames_for_inference_{video_base}")
     os.makedirs(tmp_dir, exist_ok=True)
 
     writer = None
@@ -600,7 +607,7 @@ def run_on_video(args, estimator, output_folder):
     # Whole-video npz saving (memmap-backed), one set per person
     num_persons = args.num_persons
     memmaps_list = [None] * num_persons
-    memmaps_dirs = [os.path.join(output_folder, f"video_npz_tmp_p{i}") for i in range(num_persons)]
+    memmaps_dirs = [os.path.join(output_folder, f"video_npz_tmp_{video_base}_p{i}") for i in range(num_persons)]
     kept_t = 0
     n_kept_frames = None
     n_frames_seen = None
@@ -842,7 +849,10 @@ def run_on_video_timestamps(args, estimator, output_folder):
     if len(ts_list) == 0:
         raise RuntimeError("No timestamps provided.")
 
-    tmp_dir = os.path.join(output_folder, "_tmp_frames_for_inference")
+    # Per-video tmp dir (see run_on_video) — output_folder is a shared camera
+    # dir when multiple shard processes run in parallel.
+    _ts_base = os.path.splitext(os.path.basename(args.video_path))[0]
+    tmp_dir = os.path.join(output_folder, f"_tmp_frames_for_inference_{_ts_base}")
     os.makedirs(tmp_dir, exist_ok=True)
 
     for i, ts in enumerate(tqdm(ts_list, desc="Processing timestamps")):
