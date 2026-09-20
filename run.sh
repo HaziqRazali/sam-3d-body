@@ -43,6 +43,12 @@ MHR_CONV_DIR="/home/haziq/MHR/tools/mhr_smpl_conversion"
 MHR_TO_SMPL_PY="./mhr_to_smpl.py"
 VISUALIZE_PY="/home/haziq/sam-3d-body/my_scripts/visualize_smplx.py"
 VIDEO_CODEC="${VIDEO_CODEC:-mp4v}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# `run.sh` is usually launched through `conda run`, whose environment PATH may
+# not contain the base Conda executable.  Use the explicit installation path
+# for the nested MHR conversion and visualization commands below.
+CONDA_EXE="${CONDA_EXE:-/home/haziq/anaconda3/bin/conda}"
 
 TEST_MODE="${TEST_MODE:-1}"
 
@@ -70,12 +76,13 @@ fi
 
 echo "[START] $(date) GPU=${CUDA_VISIBLE_DEVICES:-unset} TEST_MODE=$TEST_MODE DATA_ROOT=$DATA_ROOT SHARD=$SHARD/$NUM_SHARDS"
 
-# Build ONE deterministic, sorted list of videos across train+val and mp4+avi
+# Build ONE deterministic, sorted list of videos across train+val and mp4+avi.
+# Ignore dot-prefixed paths so local backups are not treated as cameras.
 # Expected layout example:
 #   $DATA_ROOT/train/<seq>/videos/<cam_name>/<video>.{mp4,avi}
 #   $DATA_ROOT/val/<seq>/videos/<cam_name>/<video>.{mp4,avi}
 mapfile -t VIDS < <(
-  find "$DATA_ROOT" -type f \( \
+  find "$DATA_ROOT" -type f ! -path '*/.*' \( \
       -path "*/train/*/videos/*/*.mp4" -o -path "*/train/*/videos/*/*.avi" -o \
       -path "*/val/*/videos/*/*.mp4"  -o -path "*/val/*/videos/*/*.avi"  \
     \) | sort
@@ -90,6 +97,10 @@ fi
 
 for idx in "${!VIDS[@]}"; do
   vid="${VIDS[$idx]}"
+
+  # Always run from the script dir so relative paths (demo.py, checkpoints, mhr)
+  # resolve correctly even if a previous step changed the working directory.
+  cd "$SCRIPT_DIR"
 
   # split + sequence + camera
   # For: .../$split/$seq/videos/$cam/$video
@@ -169,15 +180,17 @@ for idx in "${!VIDS[@]}"; do
     echo "[SKIP] SMPL-X JSON already exists (use FORCE=1 to overwrite)"
   elif [[ "$TEST_MODE" -eq 1 ]]; then
     echo "[TEST_MODE] Would run:"
-    echo "  cd $MHR_CONV_DIR && conda run -n mhr_new python $MHR_TO_SMPL_PY \\"
+    echo "  cd $MHR_CONV_DIR && $CONDA_EXE run -n mhr_new python $MHR_TO_SMPL_PY \\" 
     echo "    --mhr_path \"$out_npz\" \\"
     echo "    --out_json \"$out_json\""
   elif [[ ! -f "$out_npz" ]]; then
     echo "[WARN] NPZ not found – skipping MHR→SMPL-X conversion"
   else
-    cd "$MHR_CONV_DIR" && conda run -n mhr_new python "$MHR_TO_SMPL_PY" \
+    # Run in a subshell so the cd into MHR_CONV_DIR does not leak into the
+    # next loop iteration (Step 1 relies on cwd == SAM-3D script dir).
+    ( cd "$MHR_CONV_DIR" && "$CONDA_EXE" run --no-capture-output -n mhr_new python "$MHR_TO_SMPL_PY" \
       --mhr_path "$out_npz" \
-      --out_json "$out_json"
+      --out_json "$out_json" )
   fi
 
   # ── Step 3: Visualize SMPL-X overlay ──────────────────────────────────────
@@ -185,16 +198,18 @@ for idx in "${!VIDS[@]}"; do
     echo "[SKIP] Visualization video already exists (use FORCE=1 to overwrite)"
   elif [[ "$TEST_MODE" -eq 1 ]]; then
     echo "[TEST_MODE] Would run:"
-    echo "  conda run -n sam_3d_body python $VISUALIZE_PY \\"
+    echo "  $CONDA_EXE run -n sam_3d_body python $VISUALIZE_PY \\" 
     echo "    --video_path \"$vid\" \\"
     echo "    --smplx_json \"$out_json\" \\"
+    echo "    --mhr_npz \"$out_npz\" \\" 
     echo "    --out_video  \"$out_vis\""
   elif [[ ! -f "$out_json" ]]; then
     echo "[WARN] SMPL-X JSON not found – skipping visualization"
   else
-    conda run -n sam_3d_body python "$VISUALIZE_PY" \
+    "$CONDA_EXE" run --no-capture-output -n sam_3d_body python "$VISUALIZE_PY" \
       --video_path "$vid" \
       --smplx_json "$out_json" \
+      --mhr_npz "$out_npz" \
       --out_video  "$out_vis"
   fi
 done

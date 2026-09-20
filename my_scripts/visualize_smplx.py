@@ -152,6 +152,8 @@ def main():
     parser.add_argument("--video_path", required=True)
     parser.add_argument("--smplx_json", required=True, nargs='+',
                         help="One or more JSON outputs from mhr_to_smpl.py (one per person)")
+    parser.add_argument("--mhr_npz", required=True, nargs='+',
+                        help="One or more MHR NPZ outputs corresponding to --smplx_json")
     parser.add_argument("--out_video",  required=True)
     parser.add_argument("--smplx_path", default=find_smplx_path())
     parser.add_argument("--max_frames", type=int, default=0)
@@ -161,6 +163,8 @@ def main():
         sys.exit("[ERROR] SMPL-X model path not found. Pass --smplx_path explicitly.")
 
     num_persons = len(args.smplx_json)
+    if len(args.mhr_npz) != num_persons:
+        sys.exit("[ERROR] --mhr_npz must contain one NPZ path per --smplx_json")
 
     # ------------------------------------------------------------------
     # 1) Load SMPL-X JSON + camera params for all persons
@@ -211,7 +215,8 @@ def main():
         # Pre-compute MHR body center per frame from NPZ vertices.
         # This ensures SMPL-X rendering matches demo.py's camera exactly
         # (demo.py uses mean(MHR_verts + pred_cam_t) as camera position).
-        mhr_verts_all = npz["vertices"].astype(np.float32)  # (T, V, 3)
+        with np.load(args.mhr_npz[pi], allow_pickle=True) as npz:
+            mhr_verts_all = npz["vertices"].astype(np.float32)  # (T, V, 3)
         mhr_body_center_all = mhr_verts_all.mean(axis=1)     # (T, 3)
 
         persons.append({
